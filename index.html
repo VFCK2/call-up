@@ -230,12 +230,12 @@ function memberCard(m, allMode=false){
  const time=ok?new Date(a.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"";
  const timeText=ok?`<span class="attended-time">${esc(time)}${allMode?`<span class="attended-suffix">参集</span>`:""}</span>`:"";
  return `<div class="member ${rc}"><div class="avatar ${ok?"ok":""}">${ok?"✓":""}</div><div class="member-main"><div class="name">${esc(m.name)}${m.role?`<span class="role-badge">${esc(m.role)}</span>`:""}${timeText}</div></div>
- <button class="attendance ${ok?"ok":""}" ${(pendingAttendance.has(m.id)||pendingRemoval.has(m.id))?"disabled":""} onclick="toggleAttendance('${esc(m.id)}')">${ok?"参集済":"参集"}</button></div>`;
+ <button class="attendance ${ok?"ok":""}" ${pendingAttendance.has(m.id)?"disabled":""} onclick="toggleAttendance('${esc(m.id)}')">${ok?"参集済":"参集"}</button></div>`;
 }
 const pendingAttendance = new Set();
 const pendingRemoval = new Set();
 function toggleAttendance(id){
- if(pendingAttendance.has(id) || pendingRemoval.has(id)) return;
+ if(pendingAttendance.has(id)) return;
  const token=localStorage.getItem(localKey);
  if(state.attendance[id]){
    const a=state.attendance[id];
@@ -243,7 +243,9 @@ function toggleAttendance(id){
    if(!confirm(`${memberName(id)} さんの参集を取り消しますか？\n参集時刻 ${t}`)) return;
    pendingRemoval.add(id);
    delete state.attendance[id];
+   // 画面上は即時に「参集」へ戻す。通信完了を待たず、そのまま再度タップ可能にする。
    render();
+   pendingRemoval.delete(id);
    toast(`${memberName(id)} さんの参集を取り消しました`);
    removeAttendance(id,token);
    return;
