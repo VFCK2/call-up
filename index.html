@@ -35,8 +35,11 @@ button{font:inherit;border:0}
 .primary{width:100%;background:var(--blue);color:#fff;border-radius:12px;padding:14px;font-weight:800;margin-top:12px;cursor:pointer;display:block;-webkit-appearance:none;appearance:none}
 .section-title{font-weight:800;font-size:18px;margin:4px 0 10px}
 .member{background:#fff;border-radius:13px;padding:10px;display:flex;align-items:center;gap:9px;margin-bottom:6px;box-shadow:0 2px 7px rgba(20,45,65,.06)}
-.all-list .name{font-size:14px}
-.all-list .time{font-size:11px;margin-top:1px}
+.all-list .member{min-height:104px;height:104px;padding:14px;margin-bottom:0}
+.all-list .name{font-size:16px}
+.all-list .avatar{width:24px;height:24px}
+.attended-time{margin-left:8px;color:var(--green);font-weight:800;font-size:13px;white-space:nowrap}.attended-suffix{margin-left:1px}
+
 .avatar{width:24px;height:24px;display:grid;place-items:center;color:transparent;font-weight:900;flex:none;font-size:18px}
 .avatar.ok{background:transparent;color:var(--green)}
 .all-list .avatar{width:22px;height:22px}
@@ -224,8 +227,9 @@ function roleClass(role){
 function memberCard(m){
  const a=state.attendance[m.id], ok=!!a;
  const rc=roleClass(m.role);
- return `<div class="member ${rc}"><div class="avatar ${ok?"ok":""}">${ok?"✓":""}</div><div class="member-main"><div class="name">${esc(m.name)}${m.role?`<span class="role-badge">${esc(m.role)}</span>`:""}</div>
- <div class="time ${ok?"ok":""}">${ok?esc(new Date(a.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}))+" 参集":"未参集"}</div></div>
+ const time=ok?new Date(a.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"";
+ const timeText=ok?`<span class="attended-time">${esc(time)}<span class="attended-suffix">参集</span></span>`:"";
+ return `<div class="member ${rc}"><div class="avatar ${ok?"ok":""}">${ok?"✓":""}</div><div class="member-main"><div class="name">${esc(m.name)}${m.role?`<span class="role-badge">${esc(m.role)}</span>`:""}${timeText}</div></div>
  <button class="attendance ${ok?"ok":""}" ${pendingAttendance.has(m.id)?"disabled":""} onclick="toggleAttendance('${esc(m.id)}')">${ok?"参集済":"参集"}</button></div>`;
 }
 const pendingAttendance = new Set();
@@ -336,7 +340,7 @@ function renderAdmin(){
  </div></div>`;
 }
 function roleOptions(selected){
- const roles=['団長','副団長','分団長','副分団長','部長','副部長','班長','副班長','団員'];
+ const roles=['分団長','副分団長','部長','班長','団員'];
  return roles.map(r=>`<option value="${esc(r)}" ${r===selected?'selected':''}>${esc(r)}</option>`).join('');
 }
 function renderMemberManage(){
@@ -363,7 +367,7 @@ function openMemberEdit(id){state.editMemberId=String(id);state.page='editMember
 function renderMemberForm(){
  const m=(state.adminMembers||[]).find(x=>String(x.id)===String(state.editMemberId)) || state.members.find(x=>String(x.id)===String(state.editMemberId));
  const editing=!!m;
- const roles=['団長','副団長','分団長','副分団長','部長','副部長','班長','副班長','団員'];
+ const roles=['分団長','副分団長','部長','班長','団員'];
  return `<div class="app">${header(editing?'団員編集':'団員追加')}<div class="page">
  <div class="card" style="padding:16px">
   <label class="form-label">部</label><select id="memberDept" class="form-select">${[1,2,3,4,5,6].map(d=>`<option value="${d}" ${(editing&&Number(m.dept)===d)?'selected':''}>${d}部</option>`).join('')}</select>
