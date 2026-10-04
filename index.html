@@ -336,7 +336,7 @@ async function openMemberManage(){
 
 function openMemberEdit(id){state.editMemberId=String(id);state.page='editMember';render()}
 function renderMemberForm(){
- const m=state.members.find(x=>String(x.id)===String(state.editMemberId));
+ const m=(state.adminMembers||[]).find(x=>String(x.id)===String(state.editMemberId)) || state.members.find(x=>String(x.id)===String(state.editMemberId));
  const editing=!!m;
  const roles=['団長','副団長','分団長','副分団長','部長','副部長','班長','副班長','団員'];
  return `<div class="app">${header(editing?'団員編集':'団員追加')}<div class="page">
