@@ -230,12 +230,24 @@ function memberCard(m, allMode=false){
  const time=ok?new Date(a.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"";
  const timeText=ok?`<span class="attended-time">${esc(time)}${allMode?`<span class="attended-suffix">参集</span>`:""}</span>`:"";
  return `<div class="member ${rc}"><div class="avatar ${ok?"ok":""}">${ok?"✓":""}</div><div class="member-main"><div class="name">${esc(m.name)}${m.role?`<span class="role-badge">${esc(m.role)}</span>`:""}${timeText}</div></div>
- <button class="attendance ${ok?"ok":""}" ${pendingAttendance.has(m.id)?"disabled":""} onclick="toggleAttendance('${esc(m.id)}')">${ok?"参集済":"参集"}</button></div>`;
+ <button class="attendance ${ok?"ok":""}" ${(pendingAttendance.has(m.id)||pendingRemoval.has(m.id))?"disabled":""} onclick="toggleAttendance('${esc(m.id)}')">${ok?"参集済":"参集"}</button></div>`;
 }
 const pendingAttendance = new Set();
+const pendingRemoval = new Set();
 function toggleAttendance(id){
- if(state.attendance[id] || pendingAttendance.has(id)) return;
+ if(pendingAttendance.has(id) || pendingRemoval.has(id)) return;
  const token=localStorage.getItem(localKey);
+ if(state.attendance[id]){
+   const a=state.attendance[id];
+   const t=new Date(a.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+   if(!confirm(`${memberName(id)} さんの参集を取り消しますか？\n参集時刻 ${t}`)) return;
+   pendingRemoval.add(id);
+   delete state.attendance[id];
+   render();
+   toast(`${memberName(id)} さんの参集を取り消しました`);
+   removeAttendance(id,token);
+   return;
+ }
  const optimistic=new Date().toISOString();
  pendingAttendance.add(id);
  state.attendance[id]={time:optimistic};
@@ -248,6 +260,46 @@ function memberName(id){
  const m=state.members.find(x=>String(x.id)===String(id));
  return m?m.name:"団員";
 }
+async function removeAttendance(id,token){
+ try{
+  const r=await gas("removeAttendance",token,id,state.attendanceVersion);
+  if(!r.ok){
+   if(r.stale){
+    const fresh=await gas("getData",token);
+    if(fresh.ok){
+      state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
+      state.attendance=fresh.attendance||{};
+    }
+    pendingRemoval.delete(id);
+    render();
+    toast("リセット済みのため、参集取消を反映できませんでした");
+    return;
+   }
+   const fresh=await gas("getData",token);
+   if(fresh.ok){
+    state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
+    state.attendance=fresh.attendance||{};
+   }
+   pendingRemoval.delete(id);
+   render();
+   toast(r.message||"参集取消を保存できませんでした");
+   return;
+  }
+  state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
+  pendingRemoval.delete(id);
+  render();
+ }catch(e){
+  const fresh=await gas("getData",token);
+  if(fresh.ok){
+   state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
+   state.attendance=fresh.attendance||{};
+  }
+  pendingRemoval.delete(id);
+  render();
+  toast("通信に失敗しました。参集状況を再確認しました");
+ }
+}
+
 async function saveAttendance(id,token){
  try{
   const r=await gas("setAttendance",token,id,state.attendanceVersion);
