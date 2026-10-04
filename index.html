@@ -81,7 +81,7 @@ input{width:100%;border:1px solid #ccd5dc;border-radius:10px;padding:13px;font-s
 <script>
 const state = {
   page:"home", dept:null, filter:"all", editMemberId:null,
-  members:[], adminMembers:[], attendance:{}, attendanceVersion:1, authorized:false, history:[]
+  members:[], adminMembers:[], attendance:{}, attendanceVersion:1, authorized:false, history:[], initializing:false
 };
 const localKey="saigai_device_token_v1";
 
@@ -115,11 +115,19 @@ function nowText(){return new Date().toLocaleString("ja-JP",{year:"numeric",mont
 async function boot(){
   const token=localStorage.getItem(localKey);
   if(!token){renderAuth();return}
+  // 起動時の通信を1回にまとめ、先に画面を出す。
+  state.authorized=true;
+  state.initializing=true;
+  render();
   try{
-    const r=await gas("checkDevice",token);
-    if(r.ok){state.authorized=true;await load();render();}
-    else renderAuth();
-  }catch(e){renderAuth()}
+    await load();
+    state.initializing=false;
+    render();
+  }catch(e){
+    state.initializing=false;
+    state.authorized=false;
+    renderAuth();
+  }
 }
 async function register(){
   const code=document.getElementById("regCode").value.trim();
@@ -175,6 +183,9 @@ function render(){
  if(state.page==="history") root.innerHTML=renderHistory();
 }
 function renderHome(){
+ if(state.initializing){
+   return `<div class="app">${header("災害時参集状況",false)}<div class="page"><div class="card" style="padding:28px;text-align:center;color:var(--muted)">読み込み中…</div></div></div>`;
+ }
  const max=[1,2,3,4,5,6].reduce((s,d)=>s+deptMembers(d).length,0)||30;
  return `<div class="app">${header("災害時参集状況",false)}<div class="page">
  <div class="update">${nowText()} 更新</div>
