@@ -81,7 +81,7 @@ input{width:100%;border:1px solid #ccd5dc;border-radius:10px;padding:13px;font-s
 <script>
 const state = {
   page:"home", dept:null, filter:"all", editMemberId:null,
-  members:[], adminMembers:[], attendance:{}, authorized:false, history:[]
+  members:[], adminMembers:[], attendance:{}, attendanceVersion:1, authorized:false, history:[]
 };
 const localKey="saigai_device_token_v1";
 
@@ -146,7 +146,7 @@ function renderAuth(){
 async function load(){
   const r=await gas("getData",localStorage.getItem(localKey));
   if(!r.ok) throw new Error(r.message||"データ取得失敗");
-  state.members=r.members; state.attendance=r.attendance;
+  state.members=r.members; state.attendance=r.attendance; state.attendanceVersion=Number(r.attendanceVersion)||1;
 }
 function deptMembers(d){return state.members.filter(x=>String(x.dept)===String(d))}
 function countDept(d){return deptMembers(d).filter(x=>state.attendance[x.id]).length}
@@ -235,11 +235,23 @@ function memberName(id){
 }
 async function saveAttendance(id,token){
  try{
-  const r=await gas("setAttendance",token,id);
+  const r=await gas("setAttendance",token,id,state.attendanceVersion);
   if(!r.ok){
+   if(r.stale){
+    const fresh=await gas("getData",token);
+    if(fresh.ok){
+      state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
+      state.attendance=fresh.attendance||{};
+    }
+    pendingAttendance.delete(id);
+    render();
+    toast("リセット済みのため参集記録を取り消しました");
+    return;
+   }
    await reconcileAttendance(id,token,r.message||"記録できません");
    return;
   }
+  state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
   // 成功時は画面を再描画しない。ユーザーが押した瞬間の表示をそのまま維持する。
   // サーバー側のスナップショットで、他の人の参集状態を上書きしない。
   pendingAttendance.delete(id);
@@ -251,6 +263,7 @@ async function reconcileAttendance(id,token,errorMessage){
  try{
   const r=await gas("getData",token);
   if(r.ok && r.attendance && r.attendance[id]){
+   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
    state.attendance=Object.assign({},state.attendance,r.attendance);
    pendingAttendance.delete(id);
    render();
@@ -262,6 +275,7 @@ async function reconcileAttendance(id,token,errorMessage){
  try{
   const r=await gas("getData",token);
   if(r.ok && r.attendance && r.attendance[id]){
+   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
    state.attendance=Object.assign({},state.attendance,r.attendance);
    pendingAttendance.delete(id);
    render();
@@ -370,11 +384,19 @@ async function saveMemberFromUI(){
 }
 
 async function resetAll(){
+ if(pendingAttendance.size){toast("保存中の参集があります。少し待ってからリセットしてください");return}
  if(!confirm("現在の参集状況を履歴に保存してから、全員を未参集に戻します。よろしいですか？"))return;
  busy(true);
  try{
   const r=await gas("resetAttendance",localStorage.getItem(localKey));
-  if(r.ok){state.attendance={};state.page="home";render();toast("履歴を保存して参集状況をリセットしました");}
+  if(r.ok){
+   pendingAttendance.clear();
+   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion+1;
+   state.attendance={};
+   state.page="home";
+   render();
+   toast("履歴を保存して参集状況をリセットしました");
+  }
   else toast(r.message||"リセットできませんでした");
  }catch(e){toast("リセットできませんでした")}finally{busy(false)}
 }
