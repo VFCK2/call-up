@@ -34,16 +34,16 @@ button{font:inherit;border:0}
 .stat{padding:13px}.stat-label{font-size:12px;color:var(--muted)}.stat-value{font-size:21px;font-weight:800;margin-top:3px}
 .primary{width:100%;background:var(--blue);color:#fff;border-radius:12px;padding:14px;font-weight:800;margin-top:12px;cursor:pointer;display:block;-webkit-appearance:none;appearance:none}
 .section-title{font-weight:800;font-size:18px;margin:4px 0 10px}
-.member{background:#fff;border-radius:13px;padding:10px;display:flex;align-items:center;gap:9px;margin-bottom:6px;box-shadow:0 2px 7px rgba(20,45,65,.06);min-height:58px;height:58px}
-.all-list .member{min-height:58px;height:58px;padding:10px;margin-bottom:6px}
-.all-list .name{font-size:18px}
+.member{background:#fff;border-radius:13px;padding:10px;display:flex;align-items:center;gap:9px;margin-bottom:6px;box-shadow:0 2px 7px rgba(20,45,65,.06);min-height:60px;height:60px}
+.all-list .member{min-height:60px;height:60px;padding:10px;margin-bottom:6px}
+.all-list .name{font-size:20px}
 .all-list .avatar{width:24px;height:24px}
-.attended-time{margin-left:7px;color:var(--green);font-weight:800;font-size:14px;white-space:nowrap}.attended-suffix{margin-left:1px}
+.attended-time{margin-left:7px;color:var(--green);font-weight:800;font-size:16px;white-space:nowrap}.attended-suffix{margin-left:1px}
 
 .avatar{width:24px;height:24px;display:grid;place-items:center;color:transparent;font-weight:900;flex:none;font-size:18px}
 .avatar.ok{background:transparent;color:var(--green)}
 .all-list .avatar{width:22px;height:22px}
-.role-badge{display:inline-block;margin-left:6px;padding:2px 6px;border-radius:999px;font-size:11px;font-weight:800;vertical-align:2px;background:#eef1f4;color:#64717c}
+.role-badge{display:inline-block;margin-left:6px;padding:2px 7px;border-radius:999px;font-size:12px;font-weight:800;vertical-align:2px;background:#eef1f4;color:#64717c}
 .role-leader{color:#b42318}.role-leader .role-badge{background:#fde2df;color:#b42318}.member.role-leader{background:#fff1ef}
 .role-commander{color:#7a4e00}.role-commander .role-badge{background:#fff0c7;color:#7a4e00}.member.role-commander{background:#fff9e8}
 .role-section{color:#0b6b83}.role-section .role-badge{background:#cfeff5;color:#0b6b83}.member.role-section{background:#eaf8fb}
@@ -55,7 +55,7 @@ button{font:inherit;border:0}
 .history-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .history-title{font-weight:800}.history-count{font-size:12px;color:var(--muted);margin-top:4px}
 
-.member-main{flex:1;min-width:0}.name{font-weight:800;font-size:18px;line-height:1.15}.time{font-size:13px;color:var(--muted);margin-top:2px}
+.member-main{flex:1;min-width:0}.name{font-weight:800;font-size:20px;line-height:1.15}.time{font-size:14px;color:var(--muted);margin-top:2px}
 .time.ok{color:var(--green);font-weight:700}
 .attendance{min-width:74px;padding:10px 9px;border-radius:9px;background:#8b98a6;color:#fff;font-weight:800;cursor:pointer}
 .attendance.ok{background:var(--green)}
@@ -87,6 +87,7 @@ const state = {
   members:[], adminMembers:[], attendance:{}, attendanceVersion:1, authorized:false, history:[], initializing:false
 };
 const localKey="saigai_device_token_v1";
+const attendanceCacheKey="saigai_attendance_cache_v2";
 
 // GitHub Pagesから呼び出すGAS WebアプリURL
 // GASをデプロイしたら、このURLだけ差し替えてください。
@@ -121,6 +122,11 @@ async function boot(){
   // 起動時の通信を1回にまとめ、先に画面を出す。
   state.authorized=true;
   state.initializing=true;
+  // 更新直後でも前回表示を残し、GASから共有データを取得して上書きする。
+  try{
+    const cached=JSON.parse(localStorage.getItem(attendanceCacheKey)||"null");
+    if(cached && cached.attendance){ state.attendance=cached.attendance; state.attendanceVersion=Number(cached.attendanceVersion)||1; }
+  }catch(e){}
   render();
   try{
     await load();
@@ -128,8 +134,9 @@ async function boot(){
     render();
   }catch(e){
     state.initializing=false;
-    state.authorized=false;
-    renderAuth();
+    // 通信失敗時は登録状態を消さず、最後に取得できた共有データを表示する。
+    if(state.members.length){ render(); toast("最新データを取得できませんでした。前回の状態を表示しています"); }
+    else { state.authorized=false; renderAuth(); }
   }
 }
 async function register(){
@@ -155,9 +162,14 @@ function renderAuth(){
   </div></div>`;
 }
 async function load(){
-  const r=await gas("getData",localStorage.getItem(localKey));
+  const token=localStorage.getItem(localKey);
+  const r=await gas("getData",token);
   if(!r.ok) throw new Error(r.message||"データ取得失敗");
-  state.members=r.members; state.attendance=r.attendance; state.attendanceVersion=Number(r.attendanceVersion)||1;
+  state.members=r.members||[];
+  state.attendance=r.attendance||{};
+  state.attendanceVersion=Number(r.attendanceVersion)||1;
+  // 参集状況の正本はGAS/スプレッドシート。取得できた最新状態だけを端末にも保存。
+  try{localStorage.setItem(attendanceCacheKey,JSON.stringify({attendance:state.attendance,attendanceVersion:state.attendanceVersion,savedAt:Date.now()}));}catch(e){}
 }
 function deptMembers(d){return state.members.filter(x=>String(x.dept)===String(d))}
 function countDept(d){return deptMembers(d).filter(x=>state.attendance[x.id]).length}
@@ -235,7 +247,7 @@ function memberCard(m, allMode=false){
 const pendingAttendance = new Set();
 const pendingRemoval = new Set();
 function toggleAttendance(id){
- if(pendingAttendance.has(id)) return;
+ if(pendingAttendance.has(id) || pendingRemoval.has(id)) return;
  const token=localStorage.getItem(localKey);
  if(state.attendance[id]){
    const a=state.attendance[id];
@@ -243,10 +255,9 @@ function toggleAttendance(id){
    if(!confirm(`${memberName(id)} さんの参集を取り消しますか？\n参集時刻 ${t}`)) return;
    pendingRemoval.add(id);
    delete state.attendance[id];
-   // 画面上は即時に「参集」へ戻す。通信完了を待たず、そのまま再度タップ可能にする。
+   // 取消確認後は同じ画面のまま即「参集」表示にする。
    render();
-   pendingRemoval.delete(id);
-   toast(`${memberName(id)} さんの参集を取り消しました`);
+   toast(`${memberName(id)} さんの参集を取り消しています…`);
    removeAttendance(id,token);
    return;
  }
@@ -254,7 +265,6 @@ function toggleAttendance(id){
  pendingAttendance.add(id);
  state.attendance[id]={time:optimistic};
  render();
- // 押した瞬間に参集済へ。保存は完全に裏側で行う。
  toast(`${memberName(id)} さんを参集しました`);
  saveAttendance(id,token);
 }
