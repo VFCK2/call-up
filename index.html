@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0d3b5c">
-<title>災害時参集状況</title>
+<title>Call-up</title>
 <style>
 :root{
   --navy:#0d3b5c; --blue:#1674d1; --green:#22a447; --gray:#7f8b98;
@@ -188,8 +188,19 @@ async function toggleAttendance(id){
   state.attendance=r.attendance; render(); toast(`${r.name} さんを参集として記録しました　時刻：${r.time}`);
  }catch(e){toast("通信エラー")}
 }
+function compareMembersForAll(a,b){
+ const order={'団長':10,'副団長':20,'分団長':30,'副分団長':40,'部長':50,'副部長':60,'班長':70,'副班長':80,'団員':90,'':90};
+ const ar=Object.prototype.hasOwnProperty.call(order,a.role||'')?order[a.role||'']:85;
+ const br=Object.prototype.hasOwnProperty.call(order,b.role||'')?order[b.role||'']:85;
+ if(ar!==br)return ar-br;
+ const ad=Number(a.dept)||99, bd=Number(b.dept)||99;
+ if(ad!==bd)return ad-bd;
+ return String(a.name||'').localeCompare(String(b.name||''),'ja');
+}
+
 function renderAll(){
- const lists=state.filter==="all"?state.members:state.members.filter(m=>state.filter==="ok"?state.attendance[m.id]:!state.attendance[m.id]);
+ const lists=(state.filter==="all"?state.members:state.members.filter(m=>state.filter==="ok"?state.attendance[m.id]:!state.attendance[m.id]))
+   .slice().sort(compareMembersForAll);
  return `<div class="app">${header("全団員一覧")}<div class="page">
  <div class="tabs"><button class="tab ${state.filter==="all"?"active":""}" onclick="setFilter('all')">すべて (${state.members.length})</button>
  <button class="tab ${state.filter==="ok"?"active":""}" onclick="setFilter('ok')">参集 (${total()})</button>
