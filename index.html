@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0d3b5c">
-<title>Call-up</title>
+<title>災害時参集状況</title>
 <style>
 :root{
   --navy:#0d3b5c; --blue:#1674d1; --green:#22a447; --gray:#7f8b98;
@@ -23,7 +23,7 @@ button{font:inherit;border:0}
 .update{text-align:center;color:#52606b;font-size:13px;margin:2px 0 12px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .card{background:var(--card);border-radius:14px;box-shadow:0 2px 8px rgba(20,45,65,.08)}
-.dept{padding:14px;min-height:104px;text-align:left;cursor:pointer}
+.dept{padding:14px;min-height:104px;height:104px;text-align:left;cursor:pointer;display:block;width:100%;-webkit-appearance:none;appearance:none}
 .dept:active,.member:active,.primary:active,.attendance:active{transform:scale(.985)}
 .dept-head{display:flex;justify-content:space-between;align-items:center}
 .dept-name{font-size:20px;font-weight:800}.arrow{font-size:24px;color:#53616d}
@@ -32,7 +32,7 @@ button{font:inherit;border:0}
 .bar.mid i{background:#f0a11b}.bar.low i{background:#ef5b5b}
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
 .stat{padding:13px}.stat-label{font-size:12px;color:var(--muted)}.stat-value{font-size:21px;font-weight:800;margin-top:3px}
-.primary{width:100%;background:var(--blue);color:#fff;border-radius:12px;padding:14px;font-weight:800;margin-top:12px;cursor:pointer}
+.primary{width:100%;background:var(--blue);color:#fff;border-radius:12px;padding:14px;font-weight:800;margin-top:12px;cursor:pointer;display:block;-webkit-appearance:none;appearance:none}
 .section-title{font-weight:800;font-size:18px;margin:4px 0 10px}
 .member{background:#fff;border-radius:13px;padding:12px;display:flex;align-items:center;gap:10px;margin-bottom:8px;box-shadow:0 2px 7px rgba(20,45,65,.06)}
 .avatar{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:#dce4eb;color:#73808c;font-weight:800;flex:none}
@@ -54,18 +54,18 @@ button{font:inherit;border:0}
 .auth h1{text-align:center;font-size:21px;margin:0}.auth p{text-align:center;color:var(--muted);font-size:13px;line-height:1.6}
 input{width:100%;border:1px solid #ccd5dc;border-radius:10px;padding:13px;font-size:18px;outline:none;margin-top:8px;text-align:center;letter-spacing:3px}
 .small{font-size:11px;color:#78848e;margin-top:10px;text-align:center}
-.hidden{display:none!important}
+.hidden{display:none!important}.busy{opacity:.55;pointer-events:none}.loading{position:fixed;inset:0;background:rgba(255,255,255,.35);z-index:50;display:none;align-items:center;justify-content:center}.loading.show{display:flex}.loading span{background:#17222b;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px}
 @media(min-width:601px){body{background:#dfe6eb}.app{box-shadow:0 0 30px rgba(0,0,0,.1)}}
 </style>
 </head>
 <body>
 <div id="root"></div>
-<div id="toast" class="toast"></div>
+<div id="toast" class="toast"></div><div id="loading" class="loading"><span>更新中…</span></div>
 
 <script>
 const state = {
   page:"home", dept:null, filter:"all",
-  members:[], attendance:{}, authorized:false
+  members:[], attendance:{}, authorized:false, history:[]
 };
 const localKey="saigai_device_token_v1";
 
@@ -90,6 +90,7 @@ function gas(name,...args){
     document.body.appendChild(script);
   });
 }
+function busy(on){document.getElementById("loading")?.classList.toggle("show",!!on)}
 function toast(msg){const e=document.getElementById("toast");e.textContent=msg;e.style.display="block";setTimeout(()=>e.style.display="none",2600)}
 function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
 function nowText(){return new Date().toLocaleString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}
@@ -149,6 +150,7 @@ function render(){
  if(state.page==="all") root.innerHTML=renderAll();
  if(state.page==="status") root.innerHTML=renderStatus();
  if(state.page==="admin") root.innerHTML=renderAdmin();
+ if(state.page==="history") root.innerHTML=renderHistory();
 }
 function renderHome(){
  const max=[1,2,3,4,5,6].reduce((s,d)=>s+deptMembers(d).length,0)||30;
@@ -160,11 +162,15 @@ function renderHome(){
    <div class="count"><b>${n}</b> / ${m}名</div><div class="bar ${barClass(n,m)}"><i style="width:${p}%"></i></div></button>`}).join("")}</div>
  <div class="stats"><div class="card stat"><div class="stat-label">現在の参集人数</div><div class="stat-value">${total()} / ${max}名</div></div>
  <div class="card stat"><div class="stat-label">最終参集</div><div class="stat-value">${lastTime()||"--:--"}</div></div></div>
- <button class="primary" onclick="state.page='all';render()">全団員一覧を見る　›</button>
+ <div class="grid" style="margin-top:10px">
+   <button class="card dept" onclick="openAll()"><div class="dept-head"><span class="dept-name">全団員</span><span class="arrow">›</span></div>
+   <div class="count"><b>${state.members.length}</b>名</div><div class="bar"><i style="width:${state.members.length?Math.round(total()/state.members.length*100):0}%"></i></div></button>
+ </div>
  </div></div>`;
 }
 function lastTime(){let a=Object.values(state.attendance);if(!a.length)return "";a.sort((x,y)=>new Date(y.time)-new Date(x.time));return new Date(a[0].time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}
 function openDept(d){state.dept=d;state.page="dept";render()}
+function openAll(){state.page="all";state.filter="all";render()}
 function goHome(){state.page="home";state.dept=null;render()}
 function renderDept(){
  const d=state.dept, ms=deptMembers(d), n=countDept(d);
@@ -176,31 +182,33 @@ function renderDept(){
 }
 function memberCard(m){
  const a=state.attendance[m.id], ok=!!a;
- return `<div class="member"><div class="avatar ${ok?"ok":""}">${ok?"✓":"人"}</div><div class="member-main"><div class="name">${esc(m.name)}</div>
+ return `<div class="member"><div class="avatar ${ok?"ok":""}">${ok?"✓":"人"}</div><div class="member-main"><div class="name">${esc(m.name)}${m.role?`（${esc(m.role)}）`:""}</div>
  <div class="time ${ok?"ok":""}">${ok?esc(new Date(a.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}))+" 参集":"未参集"}</div></div>
  <button class="attendance ${ok?"ok":""}" onclick="toggleAttendance('${esc(m.id)}')">${ok?"参集済":"参集"}</button></div>`;
 }
 async function toggleAttendance(id){
+ if(state.attendance[id]) return;
  const token=localStorage.getItem(localKey);
+ const optimistic=new Date().toISOString();
+ state.attendance[id]={time:optimistic};
+ render();
  try{
   const r=await gas("setAttendance",token,id);
-  if(!r.ok){toast(r.message||"記録できません");return}
+  if(!r.ok){delete state.attendance[id];render();toast(r.message||"記録できません");return}
   state.attendance=r.attendance; render(); toast(`${r.name} さんを参集として記録しました　時刻：${r.time}`);
- }catch(e){toast("通信エラー")}
+ }catch(e){delete state.attendance[id];render();toast("通信エラー") }
 }
-function compareMembersForAll(a,b){
- const order={'団長':10,'副団長':20,'分団長':30,'副分団長':40,'部長':50,'副部長':60,'班長':70,'副班長':80,'団員':90,'':90};
- const ar=Object.prototype.hasOwnProperty.call(order,a.role||'')?order[a.role||'']:85;
- const br=Object.prototype.hasOwnProperty.call(order,b.role||'')?order[b.role||'']:85;
+function compareRole(a,b){
+ const order={"団長":10,"副団長":20,"分団長":30,"副分団長":40,"部長":50,"副部長":60,"班長":70,"副班長":80,"団員":90,"":90};
+ const ar=Object.prototype.hasOwnProperty.call(order,a.role||"")?order[a.role||""]:85;
+ const br=Object.prototype.hasOwnProperty.call(order,b.role||"")?order[b.role||""]:85;
  if(ar!==br)return ar-br;
- const ad=Number(a.dept)||99, bd=Number(b.dept)||99;
+ const ad=Number(a.dept)||99,bd=Number(b.dept)||99;
  if(ad!==bd)return ad-bd;
- return String(a.name||'').localeCompare(String(b.name||''),'ja');
+ return String(a.name||"").localeCompare(String(b.name||""),"ja");
 }
-
 function renderAll(){
- const lists=(state.filter==="all"?state.members:state.members.filter(m=>state.filter==="ok"?state.attendance[m.id]:!state.attendance[m.id]))
-   .slice().sort(compareMembersForAll);
+ const lists=(state.filter==="all"?state.members:state.members.filter(m=>state.filter==="ok"?state.attendance[m.id]:!state.attendance[m.id])).slice().sort(compareRole);
  return `<div class="app">${header("全団員一覧")}<div class="page">
  <div class="tabs"><button class="tab ${state.filter==="all"?"active":""}" onclick="setFilter('all')">すべて (${state.members.length})</button>
  <button class="tab ${state.filter==="ok"?"active":""}" onclick="setFilter('ok')">参集 (${total()})</button>
@@ -222,12 +230,35 @@ function renderAdmin(){
  return `<div class="app">${header("管理メニュー")}<div class="page"><div class="card menu">
  <div class="menu-item" onclick="resetAll()"><div class="menu-icon">↻</div><div><div class="menu-main">参集状況をリセット</div><div class="menu-sub">全員を未参集に戻します</div></div></div>
  <div class="menu-item" onclick="load().then(render).then(()=>toast('データを更新しました'))"><div class="menu-icon">⟳</div><div><div class="menu-main">データを更新</div><div class="menu-sub">最新の情報を取得します</div></div></div>
+ <div class="menu-item" onclick="showHistory()"><div class="menu-icon">▤</div><div><div class="menu-main">参集履歴</div><div class="menu-sub">リセット前の記録を確認します</div></div></div>
  <div class="menu-item" onclick="testConnection()"><div class="menu-icon">⌁</div><div><div class="menu-main">回線テスト</div><div class="menu-sub">サーバーとの接続を確認します</div></div></div>
  </div><button class="danger" onclick="resetAll()">緊急リセット（管理者用）</button>
  </div></div>`;
 }
 async function testConnection(){try{const r=await gas("ping");toast(r.ok?"接続OK":"接続NG")}catch(e){toast("接続NG")}}
-async function resetAll(){if(!confirm("全員を未参集に戻します。よろしいですか？"))return;try{const r=await gas("resetAttendance",localStorage.getItem(localKey));if(r.ok){state.attendance={};render();toast("参集状況をリセットしました")}}catch(e){toast("リセットできませんでした")}}
+async function resetAll(){
+ if(!confirm("現在の参集状況を履歴に保存してから、全員を未参集に戻します。よろしいですか？"))return;
+ busy(true);
+ try{
+  const r=await gas("resetAttendance",localStorage.getItem(localKey));
+  if(r.ok){state.attendance={};state.page="home";render();toast("履歴を保存して参集状況をリセットしました");}
+  else toast(r.message||"リセットできませんでした");
+ }catch(e){toast("リセットできませんでした")}finally{busy(false)}
+}
+async function showHistory(){
+ busy(true);
+ try{
+  const r=await gas("getHistory",localStorage.getItem(localKey));
+  if(!r.ok){toast(r.message||"履歴を取得できません");return}
+  state.history=r.history||[]; state.page="history"; render();
+ }catch(e){toast("履歴を取得できませんでした")}finally{busy(false)}
+}
+function renderHistory(){
+ return `<div class="app">${header("参集履歴")}<div class="page">${state.history.length?state.history.map(h=>{
+   const d=new Date(h.resetAt);
+   return `<div class="card" style="padding:14px;margin-bottom:10px"><div style="font-weight:800">${d.toLocaleString("ja-JP")}</div><div class="menu-sub" style="margin-top:5px">リセット時点の参集人数：${h.members.length}名</div></div>`;
+ }).join(""):"<div class='card' style='padding:20px;text-align:center;color:var(--muted)'>履歴はありません</div>"}</div></div>`;
+}
 boot();
 </script>
 </body>
