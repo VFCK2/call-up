@@ -34,16 +34,16 @@ button{font:inherit;border:0}
 .stat{padding:13px}.stat-label{font-size:12px;color:var(--muted)}.stat-value{font-size:21px;font-weight:800;margin-top:3px}
 .primary{width:100%;background:var(--blue);color:#fff;border-radius:12px;padding:14px;font-weight:800;margin-top:12px;cursor:pointer;display:block;-webkit-appearance:none;appearance:none}
 .section-title{font-weight:800;font-size:18px;margin:4px 0 10px}
-.member{background:#fff;border-radius:13px;padding:10px;display:flex;align-items:center;gap:9px;margin-bottom:6px;box-shadow:0 2px 7px rgba(20,45,65,.06)}
-.all-list .member{min-height:104px;height:104px;padding:14px;margin-bottom:0}
-.all-list .name{font-size:16px}
+.member{background:#fff;border-radius:13px;padding:10px;display:flex;align-items:center;gap:9px;margin-bottom:6px;box-shadow:0 2px 7px rgba(20,45,65,.06);min-height:58px;height:58px}
+.all-list .member{min-height:58px;height:58px;padding:10px;margin-bottom:6px}
+.all-list .name{font-size:18px}
 .all-list .avatar{width:24px;height:24px}
-.attended-time{margin-left:8px;color:var(--green);font-weight:800;font-size:13px;white-space:nowrap}.attended-suffix{margin-left:1px}
+.attended-time{margin-left:7px;color:var(--green);font-weight:800;font-size:14px;white-space:nowrap}.attended-suffix{margin-left:1px}
 
 .avatar{width:24px;height:24px;display:grid;place-items:center;color:transparent;font-weight:900;flex:none;font-size:18px}
 .avatar.ok{background:transparent;color:var(--green)}
 .all-list .avatar{width:22px;height:22px}
-.role-badge{display:inline-block;margin-left:6px;padding:2px 6px;border-radius:999px;font-size:10px;font-weight:800;vertical-align:2px;background:#eef1f4;color:#64717c}
+.role-badge{display:inline-block;margin-left:6px;padding:2px 6px;border-radius:999px;font-size:11px;font-weight:800;vertical-align:2px;background:#eef1f4;color:#64717c}
 .role-leader{color:#b42318}.role-leader .role-badge{background:#fde2df;color:#b42318}.member.role-leader{background:#fff1ef}
 .role-commander{color:#7a4e00}.role-commander .role-badge{background:#fff0c7;color:#7a4e00}.member.role-commander{background:#fff9e8}
 .role-section{color:#0b6b83}.role-section .role-badge{background:#cfeff5;color:#0b6b83}.member.role-section{background:#eaf8fb}
@@ -55,7 +55,7 @@ button{font:inherit;border:0}
 .history-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 .history-title{font-weight:800}.history-count{font-size:12px;color:var(--muted);margin-top:4px}
 
-.member-main{flex:1;min-width:0}.name{font-weight:800;font-size:16px}.time{font-size:13px;color:var(--muted);margin-top:2px}
+.member-main{flex:1;min-width:0}.name{font-weight:800;font-size:18px;line-height:1.15}.time{font-size:13px;color:var(--muted);margin-top:2px}
 .time.ok{color:var(--green);font-weight:700}
 .attendance{min-width:74px;padding:10px 9px;border-radius:9px;background:#8b98a6;color:#fff;font-weight:800;cursor:pointer}
 .attendance.ok{background:var(--green)}
@@ -224,11 +224,11 @@ function roleClass(role){
  if(r==="班長"||r==="副班長") return "role-team";
  return "role-member";
 }
-function memberCard(m){
+function memberCard(m, allMode=false){
  const a=state.attendance[m.id], ok=!!a;
  const rc=roleClass(m.role);
  const time=ok?new Date(a.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"";
- const timeText=ok?`<span class="attended-time">${esc(time)}<span class="attended-suffix">参集</span></span>`:"";
+ const timeText=ok?`<span class="attended-time">${esc(time)}${allMode?`<span class="attended-suffix">参集</span>`:""}</span>`:"";
  return `<div class="member ${rc}"><div class="avatar ${ok?"ok":""}">${ok?"✓":""}</div><div class="member-main"><div class="name">${esc(m.name)}${m.role?`<span class="role-badge">${esc(m.role)}</span>`:""}${timeText}</div></div>
  <button class="attendance ${ok?"ok":""}" ${pendingAttendance.has(m.id)?"disabled":""} onclick="toggleAttendance('${esc(m.id)}')">${ok?"参集済":"参集"}</button></div>`;
 }
@@ -317,7 +317,7 @@ function renderAll(){
  <div class="tabs"><button class="tab ${state.filter==="all"?"active":""}" onclick="setFilter('all')">すべて (${state.members.length})</button>
  <button class="tab ${state.filter==="ok"?"active":""}" onclick="setFilter('ok')">参集 (${total()})</button>
  <button class="tab ${state.filter==="ng"?"active":""}" onclick="setFilter('ng')">未参集 (${state.members.length-total()})</button></div>
- ${`<div class="all-list">${lists.map(m=>memberCard(m).replace(/<button[\s\S]*?<\/button>/,"")).join("")}</div>`}
+ ${`<div class="all-list">${lists.map(m=>memberCard(m,true).replace(/<button[\s\S]*?<\/button>/,"")).join("")}</div>`}
  </div></div>`;
 }
 function setFilter(f){state.filter=f;render()}
