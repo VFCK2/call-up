@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d3b5c">
+<title>災害時参集状況</title>
+<style>
+:root{
+  --navy:#0d3b5c; --blue:#1674d1; --green:#22a447; --gray:#7f8b98;
+  --bg:#eef3f7; --card:#fff; --text:#14212b; --muted:#6d7882; --danger:#e94a4a;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Noto Sans JP","Yu Gothic",sans-serif}
+button{font:inherit;border:0}
+.app{max-width:600px;margin:auto;min-height:100vh;background:var(--bg)}
+.header{background:var(--navy);color:#fff;padding:calc(14px + env(safe-area-inset-top)) 18px 16px;position:sticky;top:0;z-index:5}
+.header-row{display:flex;align-items:center;gap:12px}
+.logo{width:42px;height:42px;border-radius:50%;background:#fff;color:var(--navy);display:grid;place-items:center;font-weight:900;font-size:20px}
+.title{font-size:20px;font-weight:800;line-height:1.15}.sub{font-size:12px;opacity:.8;margin-top:3px}
+.back{font-size:15px;color:#fff;background:transparent;padding:8px 4px}
+.page{padding:14px 12px 30px}
+.update{text-align:center;color:#52606b;font-size:13px;margin:2px 0 12px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.card{background:var(--card);border-radius:14px;box-shadow:0 2px 8px rgba(20,45,65,.08)}
+.dept{padding:14px;min-height:104px;text-align:left;cursor:pointer}
+.dept:active,.member:active,.primary:active,.attendance:active{transform:scale(.985)}
+.dept-head{display:flex;justify-content:space-between;align-items:center}
+.dept-name{font-size:20px;font-weight:800}.arrow{font-size:24px;color:#53616d}
+.count{font-size:14px;margin-top:4px}.count b{font-size:22px}
+.bar{height:8px;background:#dce3e8;border-radius:99px;margin-top:9px;overflow:hidden}.bar i{display:block;height:100%;border-radius:99px;background:var(--green)}
+.bar.mid i{background:#f0a11b}.bar.low i{background:#ef5b5b}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.stat{padding:13px}.stat-label{font-size:12px;color:var(--muted)}.stat-value{font-size:21px;font-weight:800;margin-top:3px}
+.primary{width:100%;background:var(--blue);color:#fff;border-radius:12px;padding:14px;font-weight:800;margin-top:12px;cursor:pointer}
+.section-title{font-weight:800;font-size:18px;margin:4px 0 10px}
+.member{background:#fff;border-radius:13px;padding:12px;display:flex;align-items:center;gap:10px;margin-bottom:8px;box-shadow:0 2px 7px rgba(20,45,65,.06)}
+.avatar{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:#dce4eb;color:#73808c;font-weight:800;flex:none}
+.avatar.ok{background:#dff5e4;color:var(--green)}
+.member-main{flex:1;min-width:0}.name{font-weight:800;font-size:16px}.time{font-size:13px;color:var(--muted);margin-top:2px}
+.time.ok{color:var(--green);font-weight:700}
+.attendance{min-width:74px;padding:10px 9px;border-radius:9px;background:#8b98a6;color:#fff;font-weight:800;cursor:pointer}
+.attendance.ok{background:var(--green)}
+.tabs{display:flex;background:#dfe7ed;padding:3px;border-radius:11px;margin-bottom:12px}
+.tab{flex:1;padding:9px 4px;border-radius:8px;background:transparent;color:#50606d;font-size:13px;font-weight:700}.tab.active{background:var(--navy);color:#fff}
+.dept-row{display:flex;align-items:center;justify-content:space-between;padding:14px;background:#fff;border-radius:12px;margin-bottom:8px}
+.dots{display:flex;gap:4px}.dot{width:12px;height:12px;border-radius:50%;background:#d8e0e6}.dot.ok{background:var(--green)}.dot.mid{background:#ef9b12}
+.menu{padding:0}.menu-item{display:flex;align-items:center;gap:12px;padding:15px;background:#fff;border-bottom:1px solid #edf0f2;cursor:pointer}.menu-item:first-child{border-radius:12px 12px 0 0}.menu-item:last-child{border-radius:0 0 12px 12px}.menu-icon{font-size:22px;color:var(--blue)}.menu-main{font-weight:800}.menu-sub{font-size:12px;color:var(--muted);margin-top:3px}
+.danger{background:#ffd9d9;color:#d93434;font-weight:800;border-radius:12px;padding:14px;width:100%;margin-top:12px}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#17222b;color:#fff;border-radius:12px;padding:12px 16px;z-index:20;box-shadow:0 5px 20px rgba(0,0,0,.22);font-size:13px;display:none;max-width:90%;text-align:center}
+.auth{min-height:100vh;background:linear-gradient(180deg,var(--navy),#edf3f7 55%);padding:60px 20px}
+.auth-box{max-width:430px;margin:auto;background:#fff;border-radius:18px;padding:25px;box-shadow:0 8px 30px rgba(0,0,0,.15)}
+.auth-logo{width:62px;height:62px;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;font-size:28px;margin:0 auto 15px}
+.auth h1{text-align:center;font-size:21px;margin:0}.auth p{text-align:center;color:var(--muted);font-size:13px;line-height:1.6}
+input{width:100%;border:1px solid #ccd5dc;border-radius:10px;padding:13px;font-size:18px;outline:none;margin-top:8px;text-align:center;letter-spacing:3px}
+.small{font-size:11px;color:#78848e;margin-top:10px;text-align:center}
+.hidden{display:none!important}
+@media(min-width:601px){body{background:#dfe6eb}.app{box-shadow:0 0 30px rgba(0,0,0,.1)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="toast" class="toast"></div>
+
+<script>
+const state = {
+  page:"home", dept:null, filter:"all",
+  members:[], attendance:{}, authorized:false
+};
+const localKey="saigai_device_token_v1";
+
+function gas(name,...args){
+  return new Promise((resolve,reject)=>{
+    if(typeof google==="undefined" || !google.script || !google.script.run){
+      reject(new Error("GAS上で実行してください")); return;
+    }
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[name](...args);
+  });
+}
+function toast(msg){const e=document.getElementById("toast");e.textContent=msg;e.style.display="block";setTimeout(()=>e.style.display="none",2600)}
+function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
+function nowText(){return new Date().toLocaleString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}
+
+async function boot(){
+  const token=localStorage.getItem(localKey);
+  if(!token){renderAuth();return}
+  try{
+    const r=await gas("checkDevice",token);
+    if(r.ok){state.authorized=true;await load();render();}
+    else renderAuth();
+  }catch(e){renderAuth()}
+}
+async function register(){
+  const code=document.getElementById("regCode").value.trim();
+  if(!code){toast("登録コードを入力してください");return}
+  try{
+    const r=await gas("registerDevice",code,navigator.userAgent.slice(0,100));
+    if(!r.ok){toast(r.message||"登録できませんでした");return}
+    localStorage.setItem(localKey,r.token); state.authorized=true;
+    toast("この端末を登録しました");
+    await load(); render();
+  }catch(e){toast("通信エラー: "+e.message)}
+}
+function renderAuth(){
+  document.getElementById("root").innerHTML=`
+  <div class="auth"><div class="auth-box">
+    <div class="auth-logo">消</div>
+    <h1>災害時参集状況</h1>
+    <p>初回のみ端末登録を行います。<br>登録後はログイン不要で利用できます。</p>
+    <input id="regCode" inputmode="numeric" maxlength="12" placeholder="登録コード">
+    <button class="primary" onclick="register()">この端末を登録する</button>
+    <div class="small">※登録コードは団内で管理してください。</div>
+  </div></div>`;
+}
+async function load(){
+  const r=await gas("getData",localStorage.getItem(localKey));
+  if(!r.ok) throw new Error(r.message||"データ取得失敗");
+  state.members=r.members; state.attendance=r.attendance;
+}
+function deptMembers(d){return state.members.filter(x=>String(x.dept)===String(d))}
+function countDept(d){return deptMembers(d).filter(x=>state.attendance[x.id]).length}
+function total(){return Object.keys(state.attendance).length}
+function barClass(n,max){let p=max? n/max:0;return p>=.7?"":p>=.4?"mid":"low"}
+
+function header(title,back=true){
+ return `<div class="header"><div class="header-row">
+ ${back?`<button class="back" onclick="goHome()">‹ 戻る</button>`:"<div class='logo'>消</div>"}
+ <div class="title">${esc(title)}${!back?`<div class="sub">災害時参集状況</div>`:""}</div>
+ ${!back?`<button class="back" style="margin-left:auto" onclick="state.page='admin';render()">⚙</button>`:""}
+ </div></div>`;
+}
+function render(){
+ const root=document.getElementById("root");
+ if(state.page==="home") root.innerHTML=renderHome();
+ if(state.page==="dept") root.innerHTML=renderDept();
+ if(state.page==="all") root.innerHTML=renderAll();
+ if(state.page==="status") root.innerHTML=renderStatus();
+ if(state.page==="admin") root.innerHTML=renderAdmin();
+}
+function renderHome(){
+ const max=[1,2,3,4,5,6].reduce((s,d)=>s+deptMembers(d).length,0)||30;
+ return `<div class="app">${header("災害時参集状況",false)}<div class="page">
+ <div class="update">${nowText()} 更新</div>
+ <div class="grid">${[1,2,3,4,5,6].map(d=>{
+   const n=countDept(d),m=deptMembers(d).length||5,p=Math.round(n/m*100);
+   return `<button class="card dept" onclick="openDept(${d})"><div class="dept-head"><span class="dept-name">${d}部</span><span class="arrow">›</span></div>
+   <div class="count"><b>${n}</b> / ${m}名</div><div class="bar ${barClass(n,m)}"><i style="width:${p}%"></i></div></button>`}).join("")}</div>
+ <div class="stats"><div class="card stat"><div class="stat-label">現在の参集人数</div><div class="stat-value">${total()} / ${max}名</div></div>
+ <div class="card stat"><div class="stat-label">最終参集</div><div class="stat-value">${lastTime()||"--:--"}</div></div></div>
+ <button class="primary" onclick="state.page='all';render()">全団員一覧を見る　›</button>
+ </div></div>`;
+}
+function lastTime(){let a=Object.values(state.attendance);if(!a.length)return "";a.sort((x,y)=>new Date(y.time)-new Date(x.time));return new Date(a[0].time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}
+function openDept(d){state.dept=d;state.page="dept";render()}
+function goHome(){state.page="home";state.dept=null;render()}
+function renderDept(){
+ const d=state.dept, ms=deptMembers(d), n=countDept(d);
+ return `<div class="app">${header(`${d}部`)}<div class="page">
+ <div class="section-title">${ms.length}名中 <span style="color:var(--green)">${n}名</span> 参集 <span style="float:right">${n} / ${ms.length}名</span></div>
+ <div class="bar ${barClass(n,ms.length)}" style="margin-bottom:12px"><i style="width:${ms.length?Math.round(n/ms.length*100):0}%"></i></div>
+ ${ms.map(memberCard).join("")}
+ </div></div>`;
+}
+function memberCard(m){
+ const a=state.attendance[m.id], ok=!!a;
+ return `<div class="member"><div class="avatar ${ok?"ok":""}">${ok?"✓":"人"}</div><div class="member-main"><div class="name">${esc(m.name)}</div>
+ <div class="time ${ok?"ok":""}">${ok?esc(new Date(a.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}))+" 参集":"未参集"}</div></div>
+ <button class="attendance ${ok?"ok":""}" onclick="toggleAttendance('${esc(m.id)}')">${ok?"参集済":"参集"}</button></div>`;
+}
+async function toggleAttendance(id){
+ const token=localStorage.getItem(localKey);
+ try{
+  const r=await gas("setAttendance",token,id);
+  if(!r.ok){toast(r.message||"記録できません");return}
+  state.attendance=r.attendance; render(); toast(`${r.name} さんを参集として記録しました　時刻：${r.time}`);
+ }catch(e){toast("通信エラー")}
+}
+function renderAll(){
+ const lists=state.filter==="all"?state.members:state.members.filter(m=>state.filter==="ok"?state.attendance[m.id]:!state.attendance[m.id]);
+ return `<div class="app">${header("全団員一覧")}<div class="page">
+ <div class="tabs"><button class="tab ${state.filter==="all"?"active":""}" onclick="setFilter('all')">すべて (${state.members.length})</button>
+ <button class="tab ${state.filter==="ok"?"active":""}" onclick="setFilter('ok')">参集 (${total()})</button>
+ <button class="tab ${state.filter==="ng"?"active":""}" onclick="setFilter('ng')">未参集 (${state.members.length-total()})</button></div>
+ ${lists.map(m=>`<div class="member">${memberCard(m).replace(/<button[\s\S]*?<\/button>/,"")}</div>`).join("")}
+ </div></div>`;
+}
+function setFilter(f){state.filter=f;render()}
+function renderStatus(){
+ return `<div class="app">${header("参集状況")}<div class="page">
+ <div class="stats"><div class="card stat"><div class="stat-label">現在の参集人数</div><div class="stat-value">${total()} / ${state.members.length}名</div></div>
+ <div class="card stat"><div class="stat-label">最終参集時刻</div><div class="stat-value">${lastTime()||"--:--"}</div></div></div>
+ <div style="height:12px"></div>${[1,2,3,4,5,6].map(d=>{
+ const ms=deptMembers(d),n=countDept(d);
+ return `<div class="dept-row"><b>${d}部　${n} / ${ms.length}</b><div class="dots">${ms.map((_,i)=>`<i class="dot ${i<n?(n/ms.length>=.7?"ok":"mid"):""}"></i>`).join("")}</div><span>›</span></div>`}).join("")}
+ </div></div>`;
+}
+function renderAdmin(){
+ return `<div class="app">${header("管理メニュー")}<div class="page"><div class="card menu">
+ <div class="menu-item" onclick="resetAll()"><div class="menu-icon">↻</div><div><div class="menu-main">参集状況をリセット</div><div class="menu-sub">全員を未参集に戻します</div></div></div>
+ <div class="menu-item" onclick="load().then(render).then(()=>toast('データを更新しました'))"><div class="menu-icon">⟳</div><div><div class="menu-main">データを更新</div><div class="menu-sub">最新の情報を取得します</div></div></div>
+ <div class="menu-item" onclick="testConnection()"><div class="menu-icon">⌁</div><div><div class="menu-main">回線テスト</div><div class="menu-sub">サーバーとの接続を確認します</div></div></div>
+ </div><button class="danger" onclick="resetAll()">緊急リセット（管理者用）</button>
+ </div></div>`;
+}
+async function testConnection(){try{const r=await gas("ping");toast(r.ok?"接続OK":"接続NG")}catch(e){toast("接続NG")}}
+async function resetAll(){if(!confirm("全員を未参集に戻します。よろしいですか？"))return;try{const r=await gas("resetAttendance",localStorage.getItem(localKey));if(r.ok){state.attendance={};render();toast("参集状況をリセットしました")}}catch(e){toast("リセットできませんでした")}}
+boot();
+</script>
+</body>
+</html>
