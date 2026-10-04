@@ -87,7 +87,7 @@ const state = {
   members:[], adminMembers:[], attendance:{}, attendanceVersion:1, authorized:false, history:[], initializing:false
 };
 const localKey="saigai_device_token_v1";
-const attendanceCacheKey="saigai_attendance_cache_v2";
+const attendanceCacheKey="saigai_state_cache_v3";
 
 // GitHub Pagesから呼び出すGAS WebアプリURL
 // GASをデプロイしたら、このURLだけ差し替えてください。
@@ -119,26 +119,35 @@ function nowText(){return new Date().toLocaleString("ja-JP",{year:"numeric",mont
 async function boot(){
   const token=localStorage.getItem(localKey);
   if(!token){renderAuth();return}
-  // 起動時の通信を1回にまとめ、先に画面を出す。
   state.authorized=true;
-  state.initializing=true;
-  // 更新直後でも前回表示を残し、GASから共有データを取得して上書きする。
+  let cached=false;
   try{
-    const cached=JSON.parse(localStorage.getItem(attendanceCacheKey)||"null");
-    if(cached && cached.attendance){ state.attendance=cached.attendance; state.attendanceVersion=Number(cached.attendanceVersion)||1; }
+    const snap=JSON.parse(localStorage.getItem(attendanceCacheKey)||"null");
+    if(snap && Array.isArray(snap.members)){
+      state.members=snap.members;
+      state.attendance=snap.attendance||{};
+      state.attendanceVersion=Number(snap.attendanceVersion)||1;
+      cached=true;
+    }
   }catch(e){}
+  // キャッシュがあれば即表示。通信は完全に裏で行う。
+  state.initializing=!cached;
   render();
   try{
-    await load();
-    state.initializing=false;
-    render();
+    if(cached){
+      await refreshAttendance(true);
+    }else{
+      await load();
+      state.initializing=false;
+      render();
+    }
   }catch(e){
     state.initializing=false;
-    // 通信失敗時は登録状態を消さず、最後に取得できた共有データを表示する。
-    if(state.members.length){ render(); toast("最新データを取得できませんでした。前回の状態を表示しています"); }
-    else { state.authorized=false; renderAuth(); }
+    if(!state.members.length){state.authorized=false;renderAuth();}
+    else {render();toast("最新データを取得できませんでした");}
   }
 }
+
 async function register(){
   const code=document.getElementById("regCode").value.trim();
   if(!code){toast("登録コードを入力してください");return}
@@ -168,9 +177,22 @@ async function load(){
   state.members=r.members||[];
   state.attendance=r.attendance||{};
   state.attendanceVersion=Number(r.attendanceVersion)||1;
-  // 参集状況の正本はGAS/スプレッドシート。取得できた最新状態だけを端末にも保存。
-  try{localStorage.setItem(attendanceCacheKey,JSON.stringify({attendance:state.attendance,attendanceVersion:state.attendanceVersion,savedAt:Date.now()}));}catch(e){}
+  saveSnapshot();
 }
+async function refreshAttendance(silent=false){
+  const token=localStorage.getItem(localKey);
+  const r=await gas("getAttendance",token);
+  if(!r.ok) throw new Error(r.message||"参集状況取得失敗");
+  state.attendance=r.attendance||{};
+  state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
+  saveSnapshot();
+  if(!silent) render();
+  return r;
+}
+function saveSnapshot(){
+  try{localStorage.setItem(attendanceCacheKey,JSON.stringify({members:state.members,attendance:state.attendance,attendanceVersion:state.attendanceVersion,savedAt:Date.now()}));}catch(e){}
+}
+
 function deptMembers(d){return state.members.filter(x=>String(x.dept)===String(d))}
 function countDept(d){return deptMembers(d).filter(x=>state.attendance[x.id]).length}
 function total(){
@@ -255,6 +277,7 @@ function toggleAttendance(id){
    if(!confirm(`${memberName(id)} さんの参集を取り消しますか？\n参集時刻 ${t}`)) return;
    pendingRemoval.add(id);
    delete state.attendance[id];
+   saveSnapshot();
    // 取消確認後は同じ画面のまま即「参集」表示にする。
    render();
    toast(`${memberName(id)} さんの参集を取り消しています…`);
@@ -264,6 +287,7 @@ function toggleAttendance(id){
  const optimistic=new Date().toISOString();
  pendingAttendance.add(id);
  state.attendance[id]={time:optimistic};
+ saveSnapshot();
  render();
  toast(`${memberName(id)} さんを参集しました`);
  saveAttendance(id,token);
@@ -277,7 +301,7 @@ async function removeAttendance(id,token){
   const r=await gas("removeAttendance",token,id,state.attendanceVersion);
   if(!r.ok){
    if(r.stale){
-    const fresh=await gas("getData",token);
+    const fresh=await gas("getAttendance",token);
     if(fresh.ok){
       state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
       state.attendance=fresh.attendance||{};
@@ -287,7 +311,7 @@ async function removeAttendance(id,token){
     toast("リセット済みのため、参集取消を反映できませんでした");
     return;
    }
-   const fresh=await gas("getData",token);
+   const fresh=await gas("getAttendance",token);
    if(fresh.ok){
     state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
     state.attendance=fresh.attendance||{};
@@ -299,9 +323,10 @@ async function removeAttendance(id,token){
   }
   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
   pendingRemoval.delete(id);
+  saveSnapshot();
   render();
  }catch(e){
-  const fresh=await gas("getData",token);
+  const fresh=await gas("getAttendance",token);
   if(fresh.ok){
    state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
    state.attendance=fresh.attendance||{};
@@ -317,7 +342,7 @@ async function saveAttendance(id,token){
   const r=await gas("setAttendance",token,id,state.attendanceVersion);
   if(!r.ok){
    if(r.stale){
-    const fresh=await gas("getData",token);
+    const fresh=await gas("getAttendance",token);
     if(fresh.ok){
       state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
       state.attendance=fresh.attendance||{};
@@ -334,6 +359,7 @@ async function saveAttendance(id,token){
   // 成功時は画面を再描画しない。ユーザーが押した瞬間の表示をそのまま維持する。
   // サーバー側のスナップショットで、他の人の参集状態を上書きしない。
   pendingAttendance.delete(id);
+  saveSnapshot();
  }catch(e){
   await reconcileAttendance(id,token,"通信エラー：記録を確認しています…");
  }
@@ -343,8 +369,9 @@ async function reconcileAttendance(id,token,errorMessage){
   const r=await gas("getData",token);
   if(r.ok && r.attendance && r.attendance[id]){
    state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
-   state.attendance=Object.assign({},state.attendance,r.attendance);
+   state.attendance=r.attendance||{};
    pendingAttendance.delete(id);
+   saveSnapshot();
    render();
    return;
   }
@@ -355,13 +382,15 @@ async function reconcileAttendance(id,token,errorMessage){
   const r=await gas("getData",token);
   if(r.ok && r.attendance && r.attendance[id]){
    state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
-   state.attendance=Object.assign({},state.attendance,r.attendance);
+   state.attendance=r.attendance||{};
    pendingAttendance.delete(id);
+   saveSnapshot();
    render();
    return;
   }
  }catch(e){}
  delete state.attendance[id];
+ saveSnapshot();
  pendingAttendance.delete(id);
  render();
  toast(errorMessage||"記録できませんでした");
@@ -397,7 +426,7 @@ function renderStatus(){
 function renderAdmin(){
  return `<div class="app">${header("管理メニュー")}<div class="page"><div class="card menu">
  <div class="menu-item" onclick="resetAll()"><div class="menu-icon">↻</div><div><div class="menu-main">参集状況をリセット</div></div></div>
- <div class="menu-item" onclick="load().then(render).then(()=>toast('データを更新しました'))"><div class="menu-icon">⟳</div><div><div class="menu-main">データを更新</div></div></div>
+ <div class="menu-item" onclick="refreshAttendance().then(()=>toast('参集状況を更新しました')).catch(()=>toast('更新できませんでした'))"><div class="menu-icon">⟳</div><div><div class="menu-main">データを更新</div></div></div>
  <div class="menu-item" onclick="showHistory()"><div class="menu-icon">▤</div><div><div class="menu-main">参集履歴</div></div></div>
  <div class="menu-item" onclick="openMemberManage()"><div class="menu-icon">👤</div><div><div class="menu-main">団員管理</div></div></div>
  </div><button class="danger" onclick="resetAll()">緊急リセット（管理者用）</button>
