@@ -263,34 +263,74 @@ function memberCard(m, allMode=false){
  const rc=roleClass(m.role);
  const time=ok?new Date(a.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"";
  const timeText=ok?`<span class="attended-time">${esc(time)}${allMode?`<span class="attended-suffix">参集</span>`:""}</span>`:"";
- return `<div class="member ${rc}"><div class="avatar ${ok?"ok":""}">${ok?"✓":""}</div><div class="member-main"><div class="name">${esc(m.name)}${m.role?`<span class="role-badge">${esc(m.role)}</span>`:""}${timeText}</div></div>
- <button class="attendance ${ok?"ok":""}" ${pendingAttendance.has(m.id)?"disabled":""} onclick="toggleAttendance('${esc(m.id)}')">${ok?"参集済":"参集"}</button></div>`;
+ return `<div class="member ${rc}" data-member-id="${esc(m.id)}"><div class="avatar ${ok?"ok":""}">${ok?"✓":""}</div><div class="member-main"><div class="name">${esc(m.name)}${m.role?`<span class="role-badge">${esc(m.role)}</span>`:""}${timeText}</div></div>
+ <button class="attendance ${ok?"ok":""}" onclick="toggleAttendance('${esc(m.id)}')">${ok?"参集済":"参集"}</button></div>`;
 }
-const pendingAttendance = new Set();
-const pendingRemoval = new Set();
+
+// 通信待ちでボタンをロックしない。操作は即時反映し、同じ団員への保存だけ順番に処理する。
+const memberQueues = new Map();
+function queueMemberOperation(id, operation){
+  const key=String(id);
+  const q=memberQueues.get(key)||Promise.resolve();
+  const next=q.then(operation).catch(()=>{});
+  memberQueues.set(key,next.finally(()=>{
+    if(memberQueues.get(key)===next) memberQueues.delete(key);
+  }));
+  return next;
+}
+function updateMemberCard(id){
+ const card=document.querySelector(`.member[data-member-id="${CSS.escape(String(id))}"]`);
+ if(!card)return;
+ const m=state.members.find(x=>String(x.id)===String(id));
+ if(!m)return;
+ const a=state.attendance[m.id], ok=!!a;
+ card.querySelector('.avatar')?.classList.toggle('ok',ok);
+ if(card.querySelector('.avatar')) card.querySelector('.avatar').textContent=ok?'✓':'';
+ const name=card.querySelector('.name');
+ if(name){
+   const time=ok?new Date(a.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):'';
+   name.innerHTML=`${esc(m.name)}${m.role?`<span class="role-badge">${esc(m.role)}</span>`:''}${ok?`<span class="attended-time">${esc(time)}${state.page==='all'?`<span class="attended-suffix">参集</span>`:''}</span>`:''}`;
+ }
+ const btn=card.querySelector('.attendance');
+ if(btn){btn.classList.toggle('ok',ok);btn.textContent=ok?'参集済':'参集';btn.disabled=false;}
+}
 function toggleAttendance(id){
- if(pendingAttendance.has(id) || pendingRemoval.has(id)) return;
+ const m=state.members.find(x=>String(x.id)===String(id));
+ if(!m)return;
  const token=localStorage.getItem(localKey);
- if(state.attendance[id]){
-   const a=state.attendance[id];
+ if(state.attendance[m.id]){
+   const a=state.attendance[m.id];
    const t=new Date(a.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-   if(!confirm(`${memberName(id)} さんの参集を取り消しますか？\n参集時刻 ${t}`)) return;
-   pendingRemoval.add(id);
-   delete state.attendance[id];
+   if(!confirm(`${m.name} さんの参集を取り消しますか？\n参集時刻 ${t}`)) return;
+   delete state.attendance[m.id];
    saveSnapshot();
-   // 取消確認後は同じ画面のまま即「参集」表示にする。
-   render();
-   toast(`${memberName(id)} さんの参集を取り消しています…`);
-   removeAttendance(id,token);
+   updateMemberCard(m.id);
+   updateCountersFast();
+   toast(`${m.name} さんの参集を取り消しました`);
+   queueMemberOperation(m.id,()=>removeAttendance(m.id,token));
    return;
  }
  const optimistic=new Date().toISOString();
- pendingAttendance.add(id);
- state.attendance[id]={time:optimistic};
+ state.attendance[m.id]={time:optimistic};
  saveSnapshot();
- render();
- toast(`${memberName(id)} さんを参集しました`);
- saveAttendance(id,token);
+ updateMemberCard(m.id);
+ updateCountersFast();
+ toast(`${m.name} さんを参集しました`);
+ queueMemberOperation(m.id,()=>saveAttendance(m.id,token));
+}
+function updateCountersFast(){
+ // 現在表示中の部・全団員の人数表示だけを軽く更新。画面全体は再描画しない。
+ if(state.page==='dept'){
+   const d=state.dept, ms=deptMembers(d), n=countDept(d);
+   const title=document.querySelector('.section-title');
+   if(title) title.innerHTML=`${ms.length}名中 <span style="color:var(--green)">${n}名</span> 参集 <span style="float:right">${n} / ${ms.length}名</span>`;
+   const bar=document.querySelector('.bar');
+   if(bar){bar.className=`bar ${barClass(n,ms.length)}`; const i=bar.querySelector('i'); if(i)i.style.width=`${ms.length?Math.round(n/ms.length*100):0}%`;}
+ }
+ if(state.page==='all'){
+   const tabs=document.querySelector('.tabs');
+   if(tabs) tabs.innerHTML=`<button class="tab ${state.filter==='all'?'active':''}" onclick="setFilter('all')">すべて (${state.members.length})</button><button class="tab ${state.filter==='ok'?'active':''}" onclick="setFilter('ok')">参集 (${total()})</button><button class="tab ${state.filter==='ng'?'active':''}" onclick="setFilter('ng')">未参集 (${state.members.length-total()})</button>`;
+ }
 }
 function memberName(id){
  const m=state.members.find(x=>String(x.id)===String(id));
@@ -300,100 +340,56 @@ async function removeAttendance(id,token){
  try{
   const r=await gas("removeAttendance",token,id,state.attendanceVersion);
   if(!r.ok){
-   if(r.stale){
-    const fresh=await gas("getAttendance",token);
-    if(fresh.ok){
-      state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
-      state.attendance=fresh.attendance||{};
-    }
-    pendingRemoval.delete(id);
-    render();
-    toast("リセット済みのため、参集取消を反映できませんでした");
-    return;
-   }
    const fresh=await gas("getAttendance",token);
    if(fresh.ok){
     state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
     state.attendance=fresh.attendance||{};
+    saveSnapshot(); updateMemberCard(id); updateCountersFast();
    }
-   pendingRemoval.delete(id);
-   render();
    toast(r.message||"参集取消を保存できませんでした");
    return;
   }
   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
-  pendingRemoval.delete(id);
   saveSnapshot();
-  render();
  }catch(e){
-  const fresh=await gas("getAttendance",token);
-  if(fresh.ok){
-   state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
-   state.attendance=fresh.attendance||{};
-  }
-  pendingRemoval.delete(id);
-  render();
-  toast("通信に失敗しました。参集状況を再確認しました");
+  try{
+   const fresh=await gas("getAttendance",token);
+   if(fresh.ok){
+    state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
+    state.attendance=fresh.attendance||{};
+    saveSnapshot(); updateMemberCard(id); updateCountersFast();
+   }
+  }catch(_){ }
  }
 }
-
 async function saveAttendance(id,token){
  try{
   const r=await gas("setAttendance",token,id,state.attendanceVersion);
   if(!r.ok){
-   if(r.stale){
-    const fresh=await gas("getAttendance",token);
-    if(fresh.ok){
-      state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
-      state.attendance=fresh.attendance||{};
-    }
-    pendingAttendance.delete(id);
-    render();
-    toast("リセット済みのため参集記録を取り消しました");
-    return;
+   const fresh=await gas("getAttendance",token);
+   if(fresh.ok){
+    state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
+    state.attendance=fresh.attendance||{};
+    saveSnapshot(); updateMemberCard(id); updateCountersFast();
    }
-   await reconcileAttendance(id,token,r.message||"記録できません");
+   toast(r.message||"参集を保存できませんでした");
    return;
   }
   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
-  // 成功時は画面を再描画しない。ユーザーが押した瞬間の表示をそのまま維持する。
-  // サーバー側のスナップショットで、他の人の参集状態を上書きしない。
-  pendingAttendance.delete(id);
+  // サーバー成功時も全画面再描画しない
   saveSnapshot();
  }catch(e){
-  await reconcileAttendance(id,token,"通信エラー：記録を確認しています…");
+  try{
+   const fresh=await gas("getAttendance",token);
+   if(fresh.ok){
+    state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
+    state.attendance=fresh.attendance||{};
+    saveSnapshot(); updateMemberCard(id); updateCountersFast();
+    return;
+   }
+  }catch(_){ }
+  toast("通信に失敗しました。後で更新してください");
  }
-}
-async function reconcileAttendance(id,token,errorMessage){
- try{
-  const r=await gas("getData",token);
-  if(r.ok && r.attendance && r.attendance[id]){
-   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
-   state.attendance=r.attendance||{};
-   pendingAttendance.delete(id);
-   saveSnapshot();
-   render();
-   return;
-  }
- }catch(e){}
- // 1回の確認で取れない場合は、通信遅延の可能性があるため少し待って再確認。
- await new Promise(resolve=>setTimeout(resolve,500));
- try{
-  const r=await gas("getData",token);
-  if(r.ok && r.attendance && r.attendance[id]){
-   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
-   state.attendance=r.attendance||{};
-   pendingAttendance.delete(id);
-   saveSnapshot();
-   render();
-   return;
-  }
- }catch(e){}
- delete state.attendance[id];
- saveSnapshot();
- pendingAttendance.delete(id);
- render();
- toast(errorMessage||"記録できませんでした");
 }
 function compareRole(a,b){
  const order={"団長":10,"副団長":20,"分団長":30,"副分団長":40,"部長":50,"副部長":60,"班長":70,"副班長":80,"団員":90,"":90};
