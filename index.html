@@ -488,13 +488,11 @@ async function saveMemberFromUI(){
 }
 
 async function resetAll(){
- if(pendingAttendance.size){toast("保存中の参集があります。少し待ってからリセットしてください");return}
  if(!confirm("現在の参集状況を履歴に保存してから、全員を未参集に戻します。よろしいですか？"))return;
  busy(true);
  try{
   const r=await gas("resetAttendance",localStorage.getItem(localKey));
   if(r.ok){
-   pendingAttendance.clear();
    state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion+1;
    state.attendance={};
    state.page="home";
