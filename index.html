@@ -37,15 +37,16 @@ button{font:inherit;border:0}
 .member{background:#fff;border-radius:13px;padding:10px;display:flex;align-items:center;gap:9px;margin-bottom:6px;box-shadow:0 2px 7px rgba(20,45,65,.06)}
 .all-list .name{font-size:14px}
 .all-list .time{font-size:11px;margin-top:1px}
-.avatar{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:#f4f6f8;color:transparent;font-weight:800;flex:none;border:2px solid #d9e0e5}
-.avatar.ok{background:#dff5e4;color:var(--green);border-color:#8ed39d}
-.all-list .avatar{width:32px;height:32px}
+.avatar{width:24px;height:24px;display:grid;place-items:center;color:transparent;font-weight:900;flex:none;font-size:18px}
+.avatar.ok{background:transparent;color:var(--green)}
+.all-list .avatar{width:22px;height:22px}
 .role-badge{display:inline-block;margin-left:6px;padding:2px 6px;border-radius:999px;font-size:10px;font-weight:800;vertical-align:2px;background:#eef1f4;color:#64717c}
-.role-leader{color:#b42318}.role-leader .role-badge{background:#fde2df;color:#b42318}
-.role-commander{color:#7a4e00}.role-commander .role-badge{background:#fff0c7;color:#7a4e00}
-.role-section{color:#155e9c}.role-section .role-badge{background:#dceeff;color:#155e9c}
-.role-team{color:#087443}.role-team .role-badge{background:#dcf7e8;color:#087443}
-.role-member{color:var(--text)}.role-member .role-badge{background:#eef1f4;color:#64717c}
+.role-leader{color:#b42318}.role-leader .role-badge{background:#fde2df;color:#b42318}.member.role-leader{background:#fff1ef}
+.role-commander{color:#7a4e00}.role-commander .role-badge{background:#fff0c7;color:#7a4e00}.member.role-commander{background:#fff9e8}
+.role-section{color:#155e9c}.role-section .role-badge{background:#dceeff;color:#155e9c}.member.role-section{background:#f0f7ff}
+.role-team{color:#087443}.role-team .role-badge{background:#dcf7e8;color:#087443}.member.role-team{background:#f0fbf5}
+.role-member{color:var(--text)}.role-member .role-badge{background:#eef1f4;color:#64717c}.member.role-member{background:#fff}
+.history-person.role-leader{background:#fff1ef;padding:8px;border-radius:8px;border-top:0;margin-top:4px}.history-person.role-commander{background:#fff9e8;padding:8px;border-radius:8px;border-top:0;margin-top:4px}.history-person.role-section{background:#f0f7ff;padding:8px;border-radius:8px;border-top:0;margin-top:4px}.history-person.role-team{background:#f0fbf5;padding:8px;border-radius:8px;border-top:0;margin-top:4px}.history-person.role-member{background:#fff;padding:8px;border-radius:8px;border-top:0;margin-top:4px}
 .history-person{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid #edf0f2;font-size:13px}
 .history-name{font-weight:800}.history-time{color:var(--muted);white-space:nowrap}
 .history-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
@@ -322,6 +323,15 @@ async function showHistory(){
   state.history=r.history||[]; state.page="history"; render();
  }catch(e){toast("履歴を取得できませんでした")}finally{busy(false)}
 }
+function compareHistoryMember(a,b){
+ const order={"団長":10,"副団長":20,"分団長":30,"副分団長":40,"部長":50,"副部長":60,"班長":70,"副班長":80,"団員":90,"":90};
+ const ar=Object.prototype.hasOwnProperty.call(order,a.role||"")?order[a.role||""]:85;
+ const br=Object.prototype.hasOwnProperty.call(order,b.role||"")?order[b.role||""]:85;
+ if(ar!==br)return ar-br;
+ const ad=Number(a.dept)||99,bd=Number(b.dept)||99;
+ if(ad!==bd)return ad-bd;
+ return String(a.name||"").localeCompare(String(b.name||""),"ja");
+}
 function renderHistory(){
  return `<div class="app">${header("参集履歴")}<div class="page">${state.history.length?state.history.map((h,index)=>{
    const d=new Date(h.resetAt);
@@ -333,7 +343,7 @@ function renderHistory(){
       <div><div class="history-title">第${index+1}回　${d.toLocaleString("ja-JP")}</div><div class="history-count">参集人数：${count}名</div></div>
       <button class="danger" style="width:auto;margin:0;padding:8px 11px;background:#ffe1e1" onclick="deleteHistory('${esc(h.id)}')">削除</button>
     </div>
-    <div style="margin-top:10px">${uniqueMembers.slice().sort((a,b)=>new Date(a.assembledAt)-new Date(b.assembledAt)).map(m=>{const rc=roleClass(m.role);return `<div class="history-person ${rc}"><span class="history-name">${esc(m.name||"")}${m.role?`<span class="role-badge">${esc(m.role)}</span>`:""}</span><span class="history-time">${new Date(m.assembledAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}</span></div>`}).join("")}</div>
+    <div style="margin-top:10px">${uniqueMembers.slice().sort(compareHistoryMember).map(m=>{const rc=roleClass(m.role);return `<div class="history-person ${rc}"><span class="history-name">${esc(m.name||"")}${m.role?`<span class="role-badge">${esc(m.role)}</span>`:""}</span><span class="history-time">${new Date(m.assembledAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}</span></div>`}).join("")}</div>
    </div>`;
  }).join(""):"<div class='card' style='padding:20px;text-align:center;color:var(--muted)'>履歴はありません</div>"}</div></div>`;
 }
