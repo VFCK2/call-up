@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0d3b5c">
-<title>災害時参集状況</title>
+<title>Call-up</title>
 <style>
 :root{
   --navy:#0d3b5c; --blue:#1674d1; --green:#22a447; --gray:#7f8b98;
@@ -184,19 +184,31 @@ function memberCard(m){
  const a=state.attendance[m.id], ok=!!a;
  return `<div class="member"><div class="avatar ${ok?"ok":""}">${ok?"✓":"人"}</div><div class="member-main"><div class="name">${esc(m.name)}${m.role?`（${esc(m.role)}）`:""}</div>
  <div class="time ${ok?"ok":""}">${ok?esc(new Date(a.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}))+" 参集":"未参集"}</div></div>
- <button class="attendance ${ok?"ok":""}" onclick="toggleAttendance('${esc(m.id)}')">${ok?"参集済":"参集"}</button></div>`;
+ <button class="attendance ${ok?"ok":""}" ${pendingAttendance.has(m.id)?"disabled":""} onclick="toggleAttendance('${esc(m.id)}')">${ok?(pendingAttendance.has(m.id)?"保存中…":"参集済"):(pendingAttendance.has(m.id)?"保存中…":"参集")}</button></div>`;
 }
+const pendingAttendance = new Set();
 async function toggleAttendance(id){
- if(state.attendance[id]) return;
+ if(state.attendance[id] || pendingAttendance.has(id)) return;
  const token=localStorage.getItem(localKey);
  const optimistic=new Date().toISOString();
+ pendingAttendance.add(id);
  state.attendance[id]={time:optimistic};
  render();
  try{
   const r=await gas("setAttendance",token,id);
-  if(!r.ok){delete state.attendance[id];render();toast(r.message||"記録できません");return}
-  state.attendance=r.attendance; render(); toast(`${r.name} さんを参集として記録しました　時刻：${r.time}`);
- }catch(e){delete state.attendance[id];render();toast("通信エラー") }
+  if(!r.ok){delete state.attendance[id];pendingAttendance.delete(id);render();toast(r.message||"記録できません");return}
+  // サーバー応答が一時的に古い場合でも、画面上の参集状態を消さない。
+  state.attendance=Object.assign({},state.attendance,r.attendance||{});
+  if(r.time){state.attendance[id]={time:new Date().toISOString()};}
+  pendingAttendance.delete(id);
+  render();
+  toast(`${r.name} さんを参集として記録しました　時刻：${r.time}`);
+ }catch(e){
+  pendingAttendance.delete(id);
+  delete state.attendance[id];
+  render();
+  toast("通信エラー：記録できませんでした");
+ }
 }
 function compareRole(a,b){
  const order={"団長":10,"副団長":20,"分団長":30,"副分団長":40,"部長":50,"副部長":60,"班長":70,"副班長":80,"団員":90,"":90};
