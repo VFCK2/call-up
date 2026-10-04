@@ -43,7 +43,7 @@ button{font:inherit;border:0}
 .role-badge{display:inline-block;margin-left:6px;padding:2px 6px;border-radius:999px;font-size:10px;font-weight:800;vertical-align:2px;background:#eef1f4;color:#64717c}
 .role-leader{color:#b42318}.role-leader .role-badge{background:#fde2df;color:#b42318}.member.role-leader{background:#fff1ef}
 .role-commander{color:#7a4e00}.role-commander .role-badge{background:#fff0c7;color:#7a4e00}.member.role-commander{background:#fff9e8}
-.role-section{color:#155e9c}.role-section .role-badge{background:#dceeff;color:#155e9c}.member.role-section{background:#f0f7ff}
+.role-section{color:#6d28d9}.role-section .role-badge{background:#eadcff;color:#6d28d9}.member.role-section{background:#f7f0ff}
 .role-team{color:#087443}.role-team .role-badge{background:#dcf7e8;color:#087443}.member.role-team{background:#f0fbf5}
 .role-member{color:var(--text)}.role-member .role-badge{background:#eef1f4;color:#64717c}.member.role-member{background:#fff}
 .history-person.role-leader{background:#fff1ef;padding:8px;border-radius:8px;border-top:0;margin-top:4px}.history-person.role-commander{background:#fff9e8;padding:8px;border-radius:8px;border-top:0;margin-top:4px}.history-person.role-section{background:#f0f7ff;padding:8px;border-radius:8px;border-top:0;margin-top:4px}.history-person.role-team{background:#f0fbf5;padding:8px;border-radius:8px;border-top:0;margin-top:4px}.history-person.role-member{background:#fff;padding:8px;border-radius:8px;border-top:0;margin-top:4px}
@@ -68,6 +68,7 @@ button{font:inherit;border:0}
 .auth-logo{width:62px;height:62px;border-radius:50%;background:var(--navy);color:#fff;display:grid;place-items:center;font-size:28px;margin:0 auto 15px}
 .auth h1{text-align:center;font-size:21px;margin:0}.auth p{text-align:center;color:var(--muted);font-size:13px;line-height:1.6}
 input{width:100%;border:1px solid #ccd5dc;border-radius:10px;padding:13px;font-size:18px;outline:none;margin-top:8px;text-align:center;letter-spacing:3px}
+.form-label{display:block;font-size:13px;font-weight:800;margin-top:12px;color:#52606b}.form-select,.form-input{width:100%;border:1px solid #ccd5dc;border-radius:10px;padding:13px;font-size:16px;outline:none;margin-top:6px;background:#fff}.form-input{text-align:left;letter-spacing:0}
 .small{font-size:11px;color:#78848e;margin-top:10px;text-align:center}
 .hidden{display:none!important}.busy{opacity:.55;pointer-events:none}.loading{position:fixed;inset:0;background:rgba(255,255,255,.35);z-index:50;display:none;align-items:center;justify-content:center}.loading.show{display:flex}.loading span{background:#17222b;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px}
 @media(min-width:601px){body{background:#dfe6eb}.app{box-shadow:0 0 30px rgba(0,0,0,.1)}}
@@ -169,6 +170,7 @@ function render(){
  if(state.page==="all") root.innerHTML=renderAll();
  if(state.page==="status") root.innerHTML=renderStatus();
  if(state.page==="admin") root.innerHTML=renderAdmin();
+ if(state.page==="addMember") root.innerHTML=renderAddMember();
  if(state.page==="history") root.innerHTML=renderHistory();
 }
 function renderHome(){
@@ -303,8 +305,30 @@ function renderAdmin(){
  <div class="menu-item" onclick="resetAll()"><div class="menu-icon">↻</div><div><div class="menu-main">参集状況をリセット</div><div class="menu-sub">全員を未参集に戻します</div></div></div>
  <div class="menu-item" onclick="load().then(render).then(()=>toast('データを更新しました'))"><div class="menu-icon">⟳</div><div><div class="menu-main">データを更新</div><div class="menu-sub">最新の情報を取得します</div></div></div>
  <div class="menu-item" onclick="showHistory()"><div class="menu-icon">▤</div><div><div class="menu-main">参集履歴</div><div class="menu-sub">リセット前の記録を確認します</div></div></div>
+ <div class="menu-item" onclick="state.page='addMember';render()"><div class="menu-icon">＋</div><div><div class="menu-main">団員を追加</div><div class="menu-sub">スマートフォンから団員を登録します</div></div></div>
   </div><button class="danger" onclick="resetAll()">緊急リセット（管理者用）</button>
  </div></div>`;
+}
+function renderAddMember(){
+ const roles=['団長','副団長','分団長','副分団長','部長','副部長','班長','副班長','団員'];
+ return `<div class="app">${header('団員追加')}<div class="page">
+ <div class="card" style="padding:16px">
+  <div class="section-title">新しい団員を追加</div>
+  <label class="form-label">部</label><select id="addDept" class="form-select"><option value="">選択してください</option>${[1,2,3,4,5,6].map(d=>`<option value="${d}">${d}部</option>`).join('')}</select>
+  <label class="form-label">氏名</label><input id="addName" class="form-input" inputmode="text" maxlength="30" placeholder="氏名">
+  <label class="form-label">役職</label><select id="addRole" class="form-select">${roles.map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
+  <button class="primary" onclick="addMemberFromUI()">団員を追加する</button>
+ </div></div></div>`;
+}
+async function addMemberFromUI(){
+ const dept=document.getElementById('addDept')?.value; const name=document.getElementById('addName')?.value.trim(); const role=document.getElementById('addRole')?.value||'団員';
+ if(!dept){toast('部を選択してください');return} if(!name){toast('氏名を入力してください');return}
+ busy(true);
+ try{
+  const r=await gas('addMember',localStorage.getItem(localKey),dept,name,role);
+  if(!r.ok){toast(r.message||'追加できませんでした');return}
+  await load(); state.page='admin'; render(); toast(`${name}さんを追加しました`);
+ }catch(e){toast('団員の追加に失敗しました')}finally{busy(false)}
 }
 async function resetAll(){
  if(!confirm("現在の参集状況を履歴に保存してから、全員を未参集に戻します。よろしいですか？"))return;
