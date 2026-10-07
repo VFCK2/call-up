@@ -101,11 +101,22 @@ function gas(name,...args){
     }
     const callback = "gasCallback_" + Date.now() + "_" + Math.random().toString(36).slice(2);
     const script = document.createElement("script");
+    let settled=false;
+    const timer=setTimeout(()=>{
+      if(settled) return;
+      settled=true; cleanup(); reject(new Error("GAS通信タイムアウト"));
+    },8000);
     const params = new URLSearchParams({
       action:name, args:JSON.stringify(args), callback:callback
     });
-    window[callback] = (result)=>{ cleanup(); resolve(result); };
-    script.onerror = ()=>{ cleanup(); reject(new Error("GASとの通信に失敗しました")); };
+    window[callback] = (result)=>{
+      if(settled) return;
+      settled=true; clearTimeout(timer); cleanup(); resolve(result);
+    };
+    script.onerror = ()=>{
+      if(settled) return;
+      settled=true; clearTimeout(timer); cleanup(); reject(new Error("GASとの通信に失敗しました"));
+    };
     function cleanup(){ delete window[callback]; script.remove(); }
     script.src = GAS_URL + "?" + params.toString();
     document.body.appendChild(script);
@@ -118,7 +129,7 @@ function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&l
 function nowText(){return new Date().toLocaleString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}
 function syncText(){
  const t=state.lastSyncAt?new Date(state.lastSyncAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):"--:--:--";
- return `<span id="syncMeta">自動同期 5秒　・　最終確認 ${t}${state.syncError?`　・　通信エラー`:``}</span>`;
+ return `<span id="syncMeta">自動同期 5秒　・　最終更新 ${t}${state.syncError?`　・　通信再試行中`:``}</span>`;
 }
 function updateSyncMeta(){
  const e=document.getElementById("syncMeta");
@@ -201,6 +212,8 @@ async function refreshAttendance(silent=false){
   state.attendance=r.attendance||{};
   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
   state.changeVersion=Number(r.changeVersion)||state.changeVersion;
+  if(r.lastSyncAt) state.lastSyncAt=new Date(r.lastSyncAt).getTime();
+  state.syncError=false;
   saveSnapshot();
   if(!silent) render();
   return r;
@@ -216,8 +229,8 @@ async function pollAttendanceChanges(){
     const token=localStorage.getItem(localKey);
     if(!token) return;
     const r=await gas("getAttendanceChangeVersion",token);
-    state.lastSyncAt=Date.now();
     if(!r.ok) throw new Error(r.message||"同期確認に失敗しました");
+    if(r.lastSyncAt) state.lastSyncAt=new Date(r.lastSyncAt).getTime();
     state.syncError=false;
     const v=Number(r.changeVersion)||state.changeVersion;
     if(v!==state.changeVersion){
@@ -231,15 +244,23 @@ async function pollAttendanceChanges(){
     state.syncError=true;
     updateSyncMeta();
   }
-  finally{state.pollBusy=false;}
+  finally{
+    state.pollBusy=false;
+    if(state.authorized && !document.hidden){
+      clearTimeout(state.pollTimer);
+      state.pollTimer=setTimeout(pollAttendanceChanges,5000);
+    }
+  }
 }
 function startAttendancePolling(){
-  if(state.pollTimer) clearInterval(state.pollTimer);
-  state.pollTimer=setInterval(pollAttendanceChanges,5000);
-  setTimeout(pollAttendanceChanges,50);
+  clearTimeout(state.pollTimer);
+  state.pollTimer=setTimeout(pollAttendanceChanges,100);
 }
 document.addEventListener("visibilitychange",()=>{
-  if(!document.hidden && state.authorized) pollAttendanceChanges();
+  if(!document.hidden && state.authorized){
+    clearTimeout(state.pollTimer);
+    pollAttendanceChanges();
+  }
 });
 
 function deptMembers(d){return state.members.filter(x=>String(x.dept)===String(d))}
@@ -275,7 +296,7 @@ function renderHome(){
  const max=[1,2,3,4,5,6].reduce((s,d)=>s+deptMembers(d).length,0)||30;
  return `<div class="app">${header("災害時参集状況",false)}<div class="page">
  <div class="update">${nowText()} 更新</div>
- <div class="sync-panel"><div>${syncText()}</div><button class="refresh-btn" onclick="forceRefresh()">⟳ 強制リフレッシュ</button></div>
+ <div class="sync-panel" style="justify-content:flex-end"><button class="refresh-btn" aria-label="最新データに更新" title="最新データに更新" onclick="forceRefresh()">↻</button></div>
  <div class="grid">${[1,2,3,4,5,6].map(d=>{
    const n=countDept(d),m=deptMembers(d).length||5,p=Math.round(n/m*100);
    return `<button class="card dept" onclick="openDept(${d})"><div class="dept-head"><span class="dept-name">${d}部</span><span class="arrow">›</span></div>
@@ -413,6 +434,7 @@ async function removeAttendance(id,token){
   }
   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
   state.changeVersion=Number(r.changeVersion)||state.changeVersion;
+  if(r.lastSyncAt) state.lastSyncAt=new Date(r.lastSyncAt).getTime();
   saveSnapshot();
  }catch(e){
   try{
