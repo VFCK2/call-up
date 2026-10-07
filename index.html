@@ -85,7 +85,7 @@ input{width:100%;border:1px solid #ccd5dc;border-radius:10px;padding:13px;font-s
 <script>
 const state = {
   page:"home", dept:null, filter:"all", editMemberId:null,
-  members:[], adminMembers:[], attendance:{}, attendanceVersion:1, changeVersion:1, authorized:false, history:[], initializing:false, pollBusy:false, pollTimer:null
+  members:[], adminMembers:[], attendance:{}, attendanceVersion:1, changeVersion:1, attendanceFingerprint:"", authorized:false, history:[], initializing:false, pollBusy:false, pollTimer:null
 };
 const localKey="saigai_device_token_v1";
 const attendanceCacheKey="saigai_state_cache_v3";
@@ -194,13 +194,21 @@ async function load(){
   state.changeVersion=Number(r.changeVersion)||1;
   saveSnapshot();
 }
+function attendanceFingerprint(attendance){
+  try{return JSON.stringify(attendance||{});}catch(e){return "";}
+}
+async function getFreshAttendance(token){
+  const r=await gas("getAttendance",token);
+  if(!r.ok) throw new Error(r.message||"参集状況取得失敗");
+  return r;
+}
 async function refreshAttendance(silent=false){
   const token=localStorage.getItem(localKey);
-  const r=await gas("pollAttendance",token);
-  if(!r.ok) throw new Error(r.message||"参集状況取得失敗");
+  const r=await getFreshAttendance(token);
   state.attendance=r.attendance||{};
   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
   state.changeVersion=Number(r.changeVersion)||state.changeVersion;
+  state.attendanceFingerprint=attendanceFingerprint(state.attendance);
   saveSnapshot();
   if(!silent) render();
   return r;
@@ -214,19 +222,22 @@ async function pollAttendanceChanges(){
   try{
     const token=localStorage.getItem(localKey);
     if(!token) return;
-    const r=await gas("pollAttendance",token);
-    if(!r.ok) throw new Error(r.message||"同期確認に失敗しました");
-    const v=Number(r.changeVersion)||state.changeVersion;
-    if(v!==state.changeVersion){
-      state.attendance=r.attendance||{};
+    // pollAttendance専用APIには依存せず、既存のgetAttendanceだけで同期する。
+    // これによりGASのデプロイ差異やSafari側の不安定さを減らす。
+    const r=await getFreshAttendance(token);
+    const nextAttendance=r.attendance||{};
+    const nextFingerprint=attendanceFingerprint(nextAttendance);
+    if(nextFingerprint!==state.attendanceFingerprint){
+      state.attendance=nextAttendance;
       state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
-      state.changeVersion=v;
+      state.changeVersion=Number(r.changeVersion)||state.changeVersion;
+      state.attendanceFingerprint=nextFingerprint;
       saveSnapshot();
       if(state.page==="home" || state.page==="dept" || state.page==="all" || state.page==="status") render();
       toast("参集状況が更新されました");
     }
   }catch(e){
-    // 自動同期の一時的な失敗は画面を邪魔せず、次回に再試行する。
+    // 自動同期の一時的な失敗は表示せず、次回に再試行する。
   }finally{
     state.pollBusy=false;
     if(state.authorized && !document.hidden){
