@@ -248,7 +248,7 @@ async function pollAttendanceChanges(){
     state.pollBusy=false;
     if(state.authorized && !document.hidden){
       clearTimeout(state.pollTimer);
-      state.pollTimer=setTimeout(pollAttendanceChanges,5000);
+      state.pollTimer=setTimeout(pollAttendanceChanges,10000);
     }
   }
 }
