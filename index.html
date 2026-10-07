@@ -84,7 +84,7 @@ input{width:100%;border:1px solid #ccd5dc;border-radius:10px;padding:13px;font-s
 <script>
 const state = {
   page:"home", dept:null, filter:"all", editMemberId:null,
-  members:[], adminMembers:[], attendance:{}, attendanceVersion:1, authorized:false, history:[], initializing:false
+  members:[], adminMembers:[], attendance:{}, attendanceVersion:1, changeVersion:1, authorized:false, history:[], initializing:false, pollBusy:false, pollTimer:null
 };
 const localKey="saigai_device_token_v1";
 const attendanceCacheKey="saigai_state_cache_v3";
@@ -127,6 +127,7 @@ async function boot(){
       state.members=snap.members;
       state.attendance=snap.attendance||{};
       state.attendanceVersion=Number(snap.attendanceVersion)||1;
+      state.changeVersion=Number(snap.changeVersion)||1;
       cached=true;
     }
   }catch(e){}
@@ -146,6 +147,7 @@ async function boot(){
     if(!state.members.length){state.authorized=false;renderAuth();}
     else {render();toast("最新データを取得できませんでした");}
   }
+  if(state.authorized) startAttendancePolling();
 }
 
 async function register(){
@@ -157,6 +159,7 @@ async function register(){
     localStorage.setItem(localKey,r.token); state.authorized=true;
     toast("この端末を登録しました");
     await load(); render();
+    startAttendancePolling();
   }catch(e){toast("通信エラー: "+e.message)}
 }
 function renderAuth(){
@@ -177,6 +180,7 @@ async function load(){
   state.members=r.members||[];
   state.attendance=r.attendance||{};
   state.attendanceVersion=Number(r.attendanceVersion)||1;
+  state.changeVersion=Number(r.changeVersion)||1;
   saveSnapshot();
 }
 async function refreshAttendance(silent=false){
@@ -185,12 +189,34 @@ async function refreshAttendance(silent=false){
   if(!r.ok) throw new Error(r.message||"参集状況取得失敗");
   state.attendance=r.attendance||{};
   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
+  state.changeVersion=Number(r.changeVersion)||state.changeVersion;
   saveSnapshot();
   if(!silent) render();
   return r;
 }
 function saveSnapshot(){
-  try{localStorage.setItem(attendanceCacheKey,JSON.stringify({members:state.members,attendance:state.attendance,attendanceVersion:state.attendanceVersion,savedAt:Date.now()}));}catch(e){}
+  try{localStorage.setItem(attendanceCacheKey,JSON.stringify({members:state.members,attendance:state.attendance,attendanceVersion:state.attendanceVersion,changeVersion:state.changeVersion,savedAt:Date.now()}));}catch(e){}
+}
+
+async function pollAttendanceChanges(){
+  if(!state.authorized || state.pollBusy || document.hidden) return;
+  state.pollBusy=true;
+  try{
+    const token=localStorage.getItem(localKey);
+    if(!token) return;
+    const r=await gas("getAttendanceChangeVersion",token);
+    if(!r.ok) return;
+    const v=Number(r.changeVersion)||state.changeVersion;
+    if(v!==state.changeVersion){
+      await refreshAttendance(true);
+      if(state.page==="home" || state.page==="dept" || state.page==="all") render();
+    }
+  }catch(e){}
+  finally{state.pollBusy=false;}
+}
+function startAttendancePolling(){
+  if(state.pollTimer) clearInterval(state.pollTimer);
+  state.pollTimer=setInterval(pollAttendanceChanges,5000);
 }
 
 function deptMembers(d){return state.members.filter(x=>String(x.dept)===String(d))}
@@ -350,6 +376,7 @@ async function removeAttendance(id,token){
    return;
   }
   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
+  state.changeVersion=Number(r.changeVersion)||state.changeVersion;
   saveSnapshot();
  }catch(e){
   try{
@@ -425,7 +452,7 @@ function renderAdmin(){
  <div class="menu-item" onclick="refreshAttendance().then(()=>toast('参集状況を更新しました')).catch(()=>toast('更新できませんでした'))"><div class="menu-icon">⟳</div><div><div class="menu-main">データを更新</div></div></div>
  <div class="menu-item" onclick="showHistory()"><div class="menu-icon">▤</div><div><div class="menu-main">参集履歴</div></div></div>
  <div class="menu-item" onclick="openMemberManage()"><div class="menu-icon">👤</div><div><div class="menu-main">団員管理</div></div></div>
- </div><button class="danger" onclick="resetAll()">緊急リセット（管理者用）</button>
+ </div>
  </div></div>`;
 }
 function roleOptions(selected){
@@ -494,7 +521,9 @@ async function resetAll(){
   const r=await gas("resetAttendance",localStorage.getItem(localKey));
   if(r.ok){
    state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion+1;
+   state.changeVersion=Number(r.changeVersion)||state.changeVersion;
    state.attendance={};
+   saveSnapshot();
    state.page="home";
    render();
    toast("履歴を保存して参集状況をリセットしました");
