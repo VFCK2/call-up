@@ -101,11 +101,22 @@ function gas(name,...args){
     }
     const callback = "gasCallback_" + Date.now() + "_" + Math.random().toString(36).slice(2);
     const script = document.createElement("script");
+    let settled=false;
+    const timer=setTimeout(()=>{
+      if(settled) return;
+      settled=true; cleanup(); reject(new Error("GAS通信タイムアウト"));
+    },4500);
     const params = new URLSearchParams({
       action:name, args:JSON.stringify(args), callback:callback
     });
-    window[callback] = (result)=>{ cleanup(); resolve(result); };
-    script.onerror = ()=>{ cleanup(); reject(new Error("GASとの通信に失敗しました")); };
+    window[callback] = (result)=>{
+      if(settled) return;
+      settled=true; clearTimeout(timer); cleanup(); resolve(result);
+    };
+    script.onerror = ()=>{
+      if(settled) return;
+      settled=true; clearTimeout(timer); cleanup(); reject(new Error("GASとの通信に失敗しました"));
+    };
     function cleanup(){ delete window[callback]; script.remove(); }
     script.src = GAS_URL + "?" + params.toString();
     document.body.appendChild(script);
@@ -231,15 +242,23 @@ async function pollAttendanceChanges(){
     state.syncError=true;
     updateSyncMeta();
   }
-  finally{state.pollBusy=false;}
+  finally{
+    state.pollBusy=false;
+    if(state.authorized && !document.hidden){
+      clearTimeout(state.pollTimer);
+      state.pollTimer=setTimeout(pollAttendanceChanges,5000);
+    }
+  }
 }
 function startAttendancePolling(){
-  if(state.pollTimer) clearInterval(state.pollTimer);
-  state.pollTimer=setInterval(pollAttendanceChanges,5000);
-  setTimeout(pollAttendanceChanges,50);
+  clearTimeout(state.pollTimer);
+  state.pollTimer=setTimeout(pollAttendanceChanges,100);
 }
 document.addEventListener("visibilitychange",()=>{
-  if(!document.hidden && state.authorized) pollAttendanceChanges();
+  if(!document.hidden && state.authorized){
+    clearTimeout(state.pollTimer);
+    pollAttendanceChanges();
+  }
 });
 
 function deptMembers(d){return state.members.filter(x=>String(x.dept)===String(d))}
