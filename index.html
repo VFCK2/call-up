@@ -85,7 +85,7 @@ input{width:100%;border:1px solid #ccd5dc;border-radius:10px;padding:13px;font-s
 <script>
 const state = {
   page:"home", dept:null, filter:"all", editMemberId:null,
-  members:[], adminMembers:[], attendance:{}, attendanceVersion:1, changeVersion:1, attendanceFingerprint:"", authorized:false, history:[], initializing:false, pollBusy:false, pollTimer:null
+  members:[], adminMembers:[], attendance:{}, attendanceVersion:1, changeVersion:1, attendanceFingerprint:"", authorized:false, history:[], initializing:false, pollBusy:false, pollTimer:null, memberBusy:false
 };
 const localKey="saigai_device_token_v1";
 const attendanceCacheKey="saigai_state_cache_v3";
@@ -94,8 +94,12 @@ const attendanceCacheKey="saigai_state_cache_v3";
 // GASをデプロイしたら、このURLだけ差し替えてください。
 const GAS_URL = "https://script.google.com/macros/s/AKfycbzkj_EMfb3Ao0H1ltcgGdPYuZySbPDa6217vK8AQJz2t558iQIsO7ysDjQNAfNln5DD/exec";
 
+// GAS通信は端末内で必ず1本ずつ処理する。
+// 自動同期と「参集保存」が同時に走るとSafariでJSONPが不安定になりやすいため、
+// すべてのGAS通信を直列化する。
+let gasQueue = Promise.resolve();
 function gas(name,...args){
-  return new Promise((resolve,reject)=>{
+  const run=()=>new Promise((resolve,reject)=>{
     if(!GAS_URL || GAS_URL.includes("ここにGAS")){
       reject(new Error("GAS_URLを設定してください")); return;
     }
@@ -121,6 +125,9 @@ function gas(name,...args){
     script.src = GAS_URL + "?" + params.toString();
     document.body.appendChild(script);
   });
+  const result=gasQueue.then(run,run);
+  gasQueue=result.catch(()=>{});
+  return result;
 }
 function busy(on){document.getElementById("loading")?.classList.toggle("show",!!on)}
 let toastTimer=0;
@@ -217,7 +224,7 @@ function saveSnapshot(){
   try{localStorage.setItem(attendanceCacheKey,JSON.stringify({members:state.members,attendance:state.attendance,attendanceVersion:state.attendanceVersion,changeVersion:state.changeVersion,savedAt:Date.now()}));}catch(e){}
 }
 async function pollAttendanceChanges(){
-  if(!state.authorized || state.pollBusy || document.hidden) return;
+  if(!state.authorized || state.pollBusy || state.memberBusy || document.hidden) return;
   state.pollBusy=true;
   try{
     const token=localStorage.getItem(localKey);
@@ -386,7 +393,8 @@ function toggleAttendance(id){
    updateMemberCard(m.id);
    updateCountersFast();
    toast(`${m.name} さんの参集を取り消しました`);
-   queueMemberOperation(m.id,()=>removeAttendance(m.id,token));
+   state.memberBusy=true;
+  queueMemberOperation(m.id,()=>removeAttendance(m.id,token)).finally(()=>{state.memberBusy=false; startAttendancePolling(true);});
    return;
  }
  const optimistic=new Date().toISOString();
@@ -395,7 +403,8 @@ function toggleAttendance(id){
  updateMemberCard(m.id);
  updateCountersFast();
  toast(`${m.name} さんを参集しました`);
- queueMemberOperation(m.id,()=>saveAttendance(m.id,token));
+ state.memberBusy=true;
+ queueMemberOperation(m.id,()=>saveAttendance(m.id,token)).finally(()=>{state.memberBusy=false; startAttendancePolling(true);});
 }
 function updateCountersFast(){
  // 現在表示中の部・全団員の人数表示だけを軽く更新。画面全体は再描画しない。
