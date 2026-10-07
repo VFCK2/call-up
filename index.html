@@ -85,7 +85,7 @@ input{width:100%;border:1px solid #ccd5dc;border-radius:10px;padding:13px;font-s
 <script>
 const state = {
   page:"home", dept:null, filter:"all", editMemberId:null,
-  members:[], adminMembers:[], attendance:{}, attendanceVersion:1, changeVersion:1, authorized:false, history:[], initializing:false, pollBusy:false, pollTimer:null, lastSyncAt:0, syncError:false
+  members:[], adminMembers:[], attendance:{}, attendanceVersion:1, changeVersion:1, authorized:false, history:[], initializing:false, pollBusy:false, pollTimer:null
 };
 const localKey="saigai_device_token_v1";
 const attendanceCacheKey="saigai_state_cache_v3";
@@ -107,7 +107,7 @@ function gas(name,...args){
       settled=true; cleanup(); reject(new Error("GAS通信タイムアウト"));
     },8000);
     const params = new URLSearchParams({
-      action:name, args:JSON.stringify(args), callback:callback
+      action:name, args:JSON.stringify(args), callback:callback, _ts:String(Date.now())
     });
     window[callback] = (result)=>{
       if(settled) return;
@@ -127,15 +127,6 @@ let toastTimer=0;
 function toast(msg){const e=document.getElementById("toast");e.textContent=msg;e.style.display="block";clearTimeout(toastTimer);toastTimer=setTimeout(()=>e.style.display="none",1800)}
 function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
 function nowText(){return new Date().toLocaleString("ja-JP",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})}
-function syncText(){
- const t=state.lastSyncAt?new Date(state.lastSyncAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):"--:--:--";
- return `<span id="syncMeta">自動同期 5秒　・　最終更新 ${t}${state.syncError?`　・　通信再試行中`:``}</span>`;
-}
-function updateSyncMeta(){
- const e=document.getElementById("syncMeta");
- if(e) e.outerHTML=syncText();
-}
-
 async function boot(){
   const token=localStorage.getItem(localKey);
   if(!token){renderAuth();return}
@@ -205,15 +196,11 @@ async function load(){
 }
 async function refreshAttendance(silent=false){
   const token=localStorage.getItem(localKey);
-  const r=await gas("getAttendance",token);
+  const r=await gas("pollAttendance",token);
   if(!r.ok) throw new Error(r.message||"参集状況取得失敗");
-  state.lastSyncAt=Date.now();
-  state.syncError=false;
   state.attendance=r.attendance||{};
   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
   state.changeVersion=Number(r.changeVersion)||state.changeVersion;
-  if(r.lastSyncAt) state.lastSyncAt=new Date(r.lastSyncAt).getTime();
-  state.syncError=false;
   saveSnapshot();
   if(!silent) render();
   return r;
@@ -221,30 +208,26 @@ async function refreshAttendance(silent=false){
 function saveSnapshot(){
   try{localStorage.setItem(attendanceCacheKey,JSON.stringify({members:state.members,attendance:state.attendance,attendanceVersion:state.attendanceVersion,changeVersion:state.changeVersion,savedAt:Date.now()}));}catch(e){}
 }
-
 async function pollAttendanceChanges(){
   if(!state.authorized || state.pollBusy || document.hidden) return;
   state.pollBusy=true;
   try{
     const token=localStorage.getItem(localKey);
     if(!token) return;
-    const r=await gas("getAttendanceChangeVersion",token);
+    const r=await gas("pollAttendance",token);
     if(!r.ok) throw new Error(r.message||"同期確認に失敗しました");
-    if(r.lastSyncAt) state.lastSyncAt=new Date(r.lastSyncAt).getTime();
-    state.syncError=false;
     const v=Number(r.changeVersion)||state.changeVersion;
     if(v!==state.changeVersion){
-      await refreshAttendance(true);
+      state.attendance=r.attendance||{};
+      state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
+      state.changeVersion=v;
+      saveSnapshot();
       if(state.page==="home" || state.page==="dept" || state.page==="all" || state.page==="status") render();
       toast("参集状況が更新されました");
-    } else {
-      updateSyncMeta();
     }
   }catch(e){
-    state.syncError=true;
-    updateSyncMeta();
-  }
-  finally{
+    // 自動同期の一時的な失敗は画面を邪魔せず、次回に再試行する。
+  }finally{
     state.pollBusy=false;
     if(state.authorized && !document.hidden){
       clearTimeout(state.pollTimer);
@@ -252,15 +235,19 @@ async function pollAttendanceChanges(){
     }
   }
 }
-function startAttendancePolling(){
+function startAttendancePolling(immediate=false){
   clearTimeout(state.pollTimer);
-  state.pollTimer=setTimeout(pollAttendanceChanges,100);
+  if(immediate) pollAttendanceChanges();
+  else state.pollTimer=setTimeout(pollAttendanceChanges,10000);
 }
 document.addEventListener("visibilitychange",()=>{
-  if(!document.hidden && state.authorized){
-    clearTimeout(state.pollTimer);
-    pollAttendanceChanges();
-  }
+  if(!document.hidden && state.authorized) startAttendancePolling(true);
+});
+window.addEventListener("pageshow",()=>{
+  if(state.authorized) startAttendancePolling(true);
+});
+window.addEventListener("focus",()=>{
+  if(state.authorized && !document.hidden) startAttendancePolling(true);
 });
 
 function deptMembers(d){return state.members.filter(x=>String(x.dept)===String(d))}
@@ -320,8 +307,6 @@ async function forceRefresh(){
    render();
    toast("最新の参集状況に更新しました");
  }catch(e){
-   state.syncError=true;
-   updateSyncMeta();
    toast("更新できませんでした");
  }finally{busy(false)}
 }
@@ -434,7 +419,6 @@ async function removeAttendance(id,token){
   }
   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
   state.changeVersion=Number(r.changeVersion)||state.changeVersion;
-  if(r.lastSyncAt) state.lastSyncAt=new Date(r.lastSyncAt).getTime();
   saveSnapshot();
  }catch(e){
   try{
