@@ -109,7 +109,7 @@ function gas(name,...args){
     const timer=setTimeout(()=>{
       if(settled) return;
       settled=true; cleanup(); reject(new Error("GAS通信タイムアウト"));
-    },8000);
+    },15000);
     const params = new URLSearchParams({
       action:name, args:JSON.stringify(args), callback:callback, _ts:String(Date.now())
     });
@@ -627,13 +627,40 @@ function renderHistory(){
 async function deleteHistory(id){
  if(!confirm("この参集履歴を削除します。よろしいですか？"))return;
  busy(true);
- try{
-  const r=await gas("deleteHistory",localStorage.getItem(localKey),id);
-  if(!r.ok){toast(r.message||"履歴を削除できません");return}
+ const token=localStorage.getItem(localKey);
+ const removeFromView=()=>{
   state.history=state.history.filter(h=>String(h.id)!==String(id));
   render();
-  toast("参集履歴を削除しました");
- }catch(e){toast("履歴を削除できませんでした")}finally{busy(false)}
+ };
+ // GAS側では削除が完了していても、応答だけが遅れてタイムアウトする場合がある。
+ // エラー表示の前に履歴を再取得し、実際に消えているかを確認する。
+ const verifyDeleted=async()=>{
+  for(let attempt=0;attempt<2;attempt++){
+   try{
+    const check=await gas("getHistory",token);
+    if(check && check.ok && !(check.history||[]).some(h=>String(h.id)===String(id))){
+     removeFromView();
+     toast("参集履歴を削除しました");
+     return true;
+    }
+   }catch(e){}
+   if(attempt===0) await new Promise(resolve=>setTimeout(resolve,900));
+  }
+  return false;
+ };
+ try{
+  const r=await gas("deleteHistory",token,id);
+  if(r && r.ok){
+   removeFromView();
+   toast("参集履歴を削除しました");
+   return;
+  }
+  if(await verifyDeleted())return;
+  toast((r&&r.message)||"履歴を削除できませんでした");
+ }catch(e){
+  if(await verifyDeleted())return;
+  toast("削除結果を確認できませんでした。履歴を再表示して確認してください");
+ }finally{busy(false)}
 }
 boot();
 </script>
