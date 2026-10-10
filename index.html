@@ -85,14 +85,14 @@ input{width:100%;border:1px solid #ccd5dc;border-radius:10px;padding:13px;font-s
 <script>
 const state = {
   page:"home", dept:null, filter:"all", editMemberId:null,
-  members:[], adminMembers:[], attendance:{}, attendanceVersion:1, changeVersion:1, attendanceFingerprint:"", authorized:false, history:[], initializing:false, pollBusy:false, pollTimer:null, memberBusy:false
+  members:[], adminMembers:[], attendance:{}, attendanceVersion:1, changeVersion:1, attendanceFingerprint:"", authorized:false, history:[], initializing:false, pollBusy:false, pollTimer:null, memberBusy:false, memberOpSeq:0, pendingAttendance:new Map()
 };
 const localKey="saigai_device_token_v1";
 const attendanceCacheKey="saigai_state_cache_v3";
 
 // GitHub Pagesから呼び出すGAS WebアプリURL
 // GASをデプロイしたら、このURLだけ差し替えてください。
-const GAS_URL = "https://script.google.com/macros/s/AKfycbzkj_EMfb3Ao0H1ltcgGdPYuZySbPDa6217vK8AQJz2t558iQIsO7ysDjQNAfNln5DD/exec";
+const GAS_URL = "ここにGASのウェブアプリURLを貼り付け";
 
 // GAS通信は端末内で必ず1本ずつ処理する。
 // 自動同期と「参集保存」が同時に走るとSafariでJSONPが不安定になりやすいため、
@@ -209,14 +209,35 @@ async function getFreshAttendance(token){
   if(!r.ok) throw new Error(r.message||"参集状況取得失敗");
   return r;
 }
+function mergeAttendanceSnapshot(serverAttendance, versionChanged=false){
+  const next=serverAttendance||{};
+  if(versionChanged){
+    // リセット世代が変わった場合はサーバーを正とし、古い端末の保留操作を破棄する。
+    state.pendingAttendance.clear();
+    state.attendance={...next};
+  }else{
+    // サーバーから他端末の変更を取り込みつつ、保存中の団員だけは楽観表示を維持する。
+    const merged={...next};
+    for(const id of state.pendingAttendance.keys()){
+      if(Object.prototype.hasOwnProperty.call(state.attendance,id)) merged[id]=state.attendance[id];
+      else delete merged[id];
+    }
+    state.attendance=merged;
+  }
+  state.attendanceFingerprint=attendanceFingerprint(state.attendance);
+  saveSnapshot();
+}
 async function refreshAttendance(silent=false){
   const token=localStorage.getItem(localKey);
   const r=await getFreshAttendance(token);
-  state.attendance=r.attendance||{};
-  state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
-  state.changeVersion=Number(r.changeVersion)||state.changeVersion;
-  state.attendanceFingerprint=attendanceFingerprint(state.attendance);
-  saveSnapshot();
+  const serverVersion=Number(r.attendanceVersion)||state.attendanceVersion;
+  const versionChanged=serverVersion!==state.attendanceVersion;
+  // 古い応答が、すでに取得済みの新しいリセット世代を巻き戻さないようにする。
+  if(serverVersion>=state.attendanceVersion){
+    state.attendanceVersion=serverVersion;
+    state.changeVersion=Number(r.changeVersion)||state.changeVersion;
+    mergeAttendanceSnapshot(r.attendance,versionChanged);
+  }
   if(!silent) render();
   return r;
 }
@@ -224,22 +245,21 @@ function saveSnapshot(){
   try{localStorage.setItem(attendanceCacheKey,JSON.stringify({members:state.members,attendance:state.attendance,attendanceVersion:state.attendanceVersion,changeVersion:state.changeVersion,savedAt:Date.now()}));}catch(e){}
 }
 async function pollAttendanceChanges(){
-  if(!state.authorized || state.pollBusy || state.memberBusy || document.hidden) return;
+  if(!state.authorized || state.pollBusy || document.hidden) return;
   state.pollBusy=true;
   try{
     const token=localStorage.getItem(localKey);
     if(!token) return;
-    // pollAttendance専用APIには依存せず、既存のgetAttendanceだけで同期する。
-    // これによりGASのデプロイ差異やSafari側の不安定さを減らす。
     const r=await getFreshAttendance(token);
-    const nextAttendance=r.attendance||{};
-    const nextFingerprint=attendanceFingerprint(nextAttendance);
-    if(nextFingerprint!==state.attendanceFingerprint){
-      state.attendance=nextAttendance;
-      state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
-      state.changeVersion=Number(r.changeVersion)||state.changeVersion;
-      state.attendanceFingerprint=nextFingerprint;
-      saveSnapshot();
+    const serverVersion=Number(r.attendanceVersion)||state.attendanceVersion;
+    // すでに新しい世代を知っている端末に、古い通信結果を適用しない。
+    if(serverVersion<state.attendanceVersion) return;
+    const versionChanged=serverVersion!==state.attendanceVersion;
+    state.attendanceVersion=serverVersion;
+    state.changeVersion=Number(r.changeVersion)||state.changeVersion;
+    const before=attendanceFingerprint(state.attendance);
+    mergeAttendanceSnapshot(r.attendance,versionChanged);
+    if(attendanceFingerprint(state.attendance)!==before){
       if(state.page==="home" || state.page==="dept" || state.page==="all" || state.page==="status") render();
       toast("参集状況が更新されました");
     }
@@ -359,10 +379,12 @@ function queueMemberOperation(id, operation){
   const key=String(id);
   const q=memberQueues.get(key)||Promise.resolve();
   const next=q.then(operation).catch(()=>{});
-  memberQueues.set(key,next.finally(()=>{
-    if(memberQueues.get(key)===next) memberQueues.delete(key);
-  }));
-  return next;
+  let tracked;
+  tracked=next.finally(()=>{
+    if(memberQueues.get(key)===tracked) memberQueues.delete(key);
+  });
+  memberQueues.set(key,tracked);
+  return tracked;
 }
 function updateMemberCard(id){
  const card=document.querySelector(`.member[data-member-id="${CSS.escape(String(id))}"]`);
@@ -384,27 +406,36 @@ function toggleAttendance(id){
  const m=state.members.find(x=>String(x.id)===String(id));
  if(!m)return;
  const token=localStorage.getItem(localKey);
+ const key=String(m.id);
  if(state.attendance[m.id]){
    const a=state.attendance[m.id];
    const t=new Date(a.time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
    if(!confirm(`${m.name} さんの参集を取り消しますか？\n参集時刻 ${t}`)) return;
+   state.memberOpSeq++;
    delete state.attendance[m.id];
-   saveSnapshot();
-   updateMemberCard(m.id);
-   updateCountersFast();
+   state.pendingAttendance.set(key,null);
+   saveSnapshot(); updateMemberCard(m.id); updateCountersFast();
    toast(`${m.name} さんの参集を取り消しました`);
    state.memberBusy=true;
-  queueMemberOperation(m.id,()=>removeAttendance(m.id,token)).finally(()=>{state.memberBusy=false; startAttendancePolling(true);});
+   queueMemberOperation(m.id,()=>removeAttendance(m.id,token)).finally(()=>{
+     if(!memberQueues.has(key)) state.pendingAttendance.delete(key);
+     state.memberBusy=memberQueues.size>0;
+     startAttendancePolling(true);
+   });
    return;
  }
+ state.memberOpSeq++;
  const optimistic=new Date().toISOString();
  state.attendance[m.id]={time:optimistic};
- saveSnapshot();
- updateMemberCard(m.id);
- updateCountersFast();
+ state.pendingAttendance.set(key,state.attendance[m.id]);
+ saveSnapshot(); updateMemberCard(m.id); updateCountersFast();
  toast(`${m.name} さんを参集しました`);
  state.memberBusy=true;
- queueMemberOperation(m.id,()=>saveAttendance(m.id,token)).finally(()=>{state.memberBusy=false; startAttendancePolling(true);});
+ queueMemberOperation(m.id,()=>saveAttendance(m.id,token)).finally(()=>{
+   if(!memberQueues.has(key)) state.pendingAttendance.delete(key);
+   state.memberBusy=memberQueues.size>0;
+   startAttendancePolling(true);
+ });
 }
 function updateCountersFast(){
  // 現在表示中の部・全団員の人数表示だけを軽く更新。画面全体は再描画しない。
@@ -427,57 +458,24 @@ function memberName(id){
 async function removeAttendance(id,token){
  try{
   const r=await gas("removeAttendance",token,id,state.attendanceVersion);
-  if(!r.ok){
-   const fresh=await gas("getAttendance",token);
-   if(fresh.ok){
-    state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
-    state.attendance=fresh.attendance||{};
-    saveSnapshot(); updateMemberCard(id); updateCountersFast();
-   }
-   toast(r.message||"参集取消を保存できませんでした");
-   return;
-  }
+  if(!r.ok){ toast(r.message||"参集取消を保存できませんでした"); return; }
   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
   state.changeVersion=Number(r.changeVersion)||state.changeVersion;
   saveSnapshot();
  }catch(e){
-  try{
-   const fresh=await gas("getAttendance",token);
-   if(fresh.ok){
-    state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
-    state.attendance=fresh.attendance||{};
-    saveSnapshot(); updateMemberCard(id); updateCountersFast();
-   }
-  }catch(_){ }
+  toast("参集取消の通信に失敗しました。最新状態を再取得します");
  }
 }
 async function saveAttendance(id,token){
  try{
   const r=await gas("setAttendance",token,id,state.attendanceVersion);
-  if(!r.ok){
-   const fresh=await gas("getAttendance",token);
-   if(fresh.ok){
-    state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
-    state.attendance=fresh.attendance||{};
-    saveSnapshot(); updateMemberCard(id); updateCountersFast();
-   }
-   toast(r.message||"参集を保存できませんでした");
-   return;
-  }
+  if(!r.ok){ toast(r.message||"参集を保存できませんでした"); return; }
   state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion;
-  // サーバー成功時も全画面再描画しない
+  state.changeVersion=Number(r.changeVersion)||state.changeVersion;
+  // 保存成功時も全画面再描画せず、タップ直後の表示を維持する。
   saveSnapshot();
  }catch(e){
-  try{
-   const fresh=await gas("getAttendance",token);
-   if(fresh.ok){
-    state.attendanceVersion=Number(fresh.attendanceVersion)||state.attendanceVersion;
-    state.attendance=fresh.attendance||{};
-    saveSnapshot(); updateMemberCard(id); updateCountersFast();
-    return;
-   }
-  }catch(_){ }
-  toast("通信に失敗しました。後で更新してください");
+  toast("参集の通信に失敗しました。最新状態を再取得します");
  }
 }
 function compareRole(a,b){
@@ -584,6 +582,8 @@ async function resetAll(){
    state.attendanceVersion=Number(r.attendanceVersion)||state.attendanceVersion+1;
    state.changeVersion=Number(r.changeVersion)||state.changeVersion;
    state.attendance={};
+   state.pendingAttendance.clear();
+   state.attendanceFingerprint=attendanceFingerprint(state.attendance);
    saveSnapshot();
    state.page="home";
    render();
